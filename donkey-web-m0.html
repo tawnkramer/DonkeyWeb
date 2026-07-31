@@ -146,7 +146,7 @@
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true, logarithmicDepthBuffer:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -154,8 +154,12 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xf2b98e, 60, 240);
 
-const chaseCam = new THREE.PerspectiveCamera(58, 1, 0.1, 500);
-const povCam   = new THREE.PerspectiveCamera(80, 160/120, 0.05, 300); // wide FOV like a donkey cam
+// far planes trimmed to roughly the fog/track extent: an oversized far
+// plane starves the depth buffer of precision, which was causing the
+// road ribbon (only ~2cm above the ground) to lose the depth test and
+// disappear anywhere more than a few meters from the camera.
+const chaseCam = new THREE.PerspectiveCamera(58, 1, 0.1, 280);
+const povCam   = new THREE.PerspectiveCamera(80, 160/120, 0.05, 280); // wide FOV like a donkey cam
 
 // POV render target + blit path (real pixel buffer = future training input)
 const POV_W = 160, POV_H = 120;
@@ -187,10 +191,16 @@ scene.add(ground);
 
 // ---------- track (closed Catmull-Rom spline) ----------
 const TRACK_W = 7;                 // road width (m)
+// The start/finish point [0,0] sits between [18,-30] and [7,7] in the loop,
+// where the raw direction change is a ~130° hairpin. That's tighter than the
+// road's own half-width, which would make the road's edges fold across each
+// other right at the apex. [7,7] (and the closing point [0.8,-8] near the
+// end) are a small chamfer that opens the apex up to a rideable radius while
+// keeping the same start position and roughly the same hairpin shape.
 const ctrl = [
-  [  0,   0], [ 34,  -6], [ 58,   8], [ 66,  36], [ 46,  56],
+  [  0,   0], [  7,   7], [ 34,  -6], [ 58,   8], [ 66,  36], [ 46,  56],
   [ 14,  50], [ -6,  66], [-40,  62], [-58,  34], [-50,   4],
-  [-64, -26], [-42, -50], [ -8, -46], [ 18, -30]
+  [-64, -26], [-42, -50], [ -8, -46], [ 18, -30], [0.8,  -8]
 ].map(p => new THREE.Vector3(p[0], 0, p[1]));
 const spline = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
 
@@ -203,13 +213,28 @@ for (let i = 0; i < SAMPLES; i++) {
 }
 const normalAt = i => new THREE.Vector3(-tangents[i].z, 0, tangents[i].x);
 
+// Per-sample width taper: at tight corners the curvature radius can be
+// smaller than the road half-width, which would make the offset ribbon
+// edges fold back across themselves (self-intersecting geometry). Scale
+// the lateral offset down wherever the local radius gets tight so the
+// ribbon never crosses its own centerline.
+const MAX_OFFSET = TRACK_W/2 + 0.05;
+const widthScale = new Array(SAMPLES);
+for (let i = 0; i < SAMPLES; i++) {
+  const p = (i - 1 + SAMPLES) % SAMPLES, n2 = (i + 1) % SAMPLES;
+  const dTheta = tangents[p].angleTo(tangents[n2]);
+  const ds = centers[p].distanceTo(centers[n2]);
+  const radius = dTheta > 1e-6 ? ds / dTheta : Infinity;
+  widthScale[i] = Math.min(1, (radius * 0.85) / MAX_OFFSET);
+}
+
 // road ribbon
 function ribbon(halfInner, halfOuter, y, color) {
   const pos = [], idx = [];
   for (let i = 0; i <= SAMPLES; i++) {
-    const j = i % SAMPLES, c = centers[j], n = normalAt(j);
-    pos.push(c.x + n.x*halfOuter, y, c.z + n.z*halfOuter,
-             c.x + n.x*halfInner, y, c.z + n.z*halfInner);
+    const j = i % SAMPLES, c = centers[j], n = normalAt(j), s = widthScale[j];
+    pos.push(c.x + n.x*halfOuter*s, y, c.z + n.z*halfOuter*s,
+             c.x + n.x*halfInner*s, y, c.z + n.z*halfInner*s);
   }
   for (let i = 0; i < SAMPLES; i++) {
     const a = i*2, b = a+1, c2 = a+2, d = a+3;
@@ -218,7 +243,12 @@ function ribbon(halfInner, halfOuter, y, color) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color}));
+  // The strip's triangle winding faces downward everywhere (a quirk of how
+  // the outer/inner offsets are ordered relative to the loop's traversal
+  // direction), which put it on the back face relative to every camera we
+  // use (all of them sit above the road). DoubleSide keeps it visible
+  // regardless of winding.
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide}));
   m.receiveShadow = true;
   return m;
 }
