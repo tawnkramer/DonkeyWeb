@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "serve": "node test/serve.js",
-    "test": "node --test test/*.test.js"
+    "test": "bash scripts/test.sh"
   },
   "devDependencies": {
     "puppeteer-core": "^25.4.0"
