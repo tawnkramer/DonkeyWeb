@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>donkey.web — M1 record &amp; train</title>
+<title>donkey.web — M2 the loop</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -80,6 +80,14 @@
   }
   #trainBtn.running{background:transparent;color:var(--cone)}
   #trainBtn:disabled{opacity:.55;cursor:default}
+  #pilotBtn{
+    width:100%;margin-top:6px;padding:7px 0;border-radius:6px;
+    border:1px solid var(--panel-line);background:transparent;color:var(--text);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  #pilotBtn.on{background:var(--lane);border-color:var(--lane);color:#1b1408}
+  #pilotBtn:disabled{opacity:.4;cursor:default}
 
   /* telemetry strip */
   #telem{
@@ -96,6 +104,9 @@
   #steerbar{width:150px}
   #steerbar .fill{position:absolute;top:0;bottom:0;left:50%;background:var(--cone);border-radius:4px}
   #steerbar .tick{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,.4)}
+  /* model-opinion needle (lane yellow = the model, cone orange = you) */
+  #steerbar .needle{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;
+    background:var(--lane);box-shadow:0 0 4px rgba(255,210,63,.7);display:none}
   #throtbar .fill{position:absolute;top:0;bottom:0;left:0;background:var(--text);border-radius:4px}
   .offtrack .t-value{color:var(--cone)}
 
@@ -139,7 +150,7 @@
 
 <div class="hud" id="brand">
   <div class="word">donkey<b>.</b>web</div>
-  <div class="sub">M1 · record &amp; train</div>
+  <div class="sub">M2 · the loop</div>
 </div>
 
 <div class="hud" id="povwrap">
@@ -164,6 +175,7 @@
   </div>
   <canvas id="lossChart" width="220" height="56"></canvas>
   <button id="trainBtn">train model</button>
+  <button id="pilotBtn" disabled title="train a model first">autopilot</button>
 </div>
 
 <div class="hud" id="hint">
@@ -174,7 +186,7 @@
 
 <div class="hud" id="telem">
   <div class="t-item"><span class="t-label">Speed</span><span class="t-value" id="tSpeed">0<small>km/h</small></span></div>
-  <div class="t-item"><span class="t-label">Steering</span><div class="bar" id="steerbar"><div class="tick"></div><div class="fill" id="steerfill"></div></div></div>
+  <div class="t-item"><span class="t-label">Steering</span><div class="bar" id="steerbar"><div class="tick"></div><div class="fill" id="steerfill"></div><div class="needle" id="steerneedle"></div></div></div>
   <div class="t-item"><span class="t-label">Throttle</span><div class="bar" id="throtbar"><div class="fill" id="throtfill"></div></div></div>
   <div class="t-item" id="cteItem"><span class="t-label">Off-center</span><span class="t-value" id="tCte">0.0<small>m</small></span></div>
   <div class="t-item"><span class="t-label">Sim</span><span class="t-value" id="tFps">–<small>fps</small></span></div>

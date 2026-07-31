@@ -1,5 +1,6 @@
 import { V, cte, offTrack, throttleVis } from './car.js';
 import { tub, BINS } from '../data/tub.js';
+import { pilot } from '../train/autopilot.js';
 
 // ---------- HUD ----------
 const el = {
@@ -8,7 +9,8 @@ const el = {
   throt: document.getElementById('throtfill'),
   cte:   document.getElementById('tCte'),
   cteItem: document.getElementById('cteItem'),
-  fps:   document.getElementById('tFps')
+  fps:   document.getElementById('tFps'),
+  needle: document.getElementById('steerneedle')
 };
 
 export function drawHud() {
@@ -18,6 +20,11 @@ export function drawHud() {
   el.steer.style.width = pct + '%';
   el.steer.style.left = s > 0 ? (50-pct) + '%' : '50%';
   el.throt.style.width = Math.max(0, throttleVis)*100 + '%';
+  // model-opinion needle on the same bar (plan §2.4 "steering needle
+  // overlay"): visible whenever a model is loaded, so in manual mode you
+  // can shadow-drive against it. +1 = left, same mapping as the fill.
+  el.needle.style.display = pilot.ready ? 'block' : 'none';
+  if (pilot.ready) el.needle.style.left = (50 - pilot.steer*50) + '%';
   el.cte.innerHTML = cte.toFixed(1) + '<small>m</small>';
   el.cteItem.classList.toggle('offtrack', offTrack);
 }

@@ -3,6 +3,7 @@ import { scene } from './scene.js';
 import { SAMPLES, TRACK_W, START_IDX, centers, tangents } from './track.js';
 import { input } from './input.js';
 import { tubTrimLastSeconds } from '../data/tub.js';
+import { pilot } from '../train/autopilot.js';
 
 // ---------- car ----------
 export const car = new THREE.Group();
@@ -119,7 +120,12 @@ export function step(dt) {
   // the line, and zero the throttle so it doesn't immediately drive off
   // again.
   if (offTrack && !wasOffTrack) {
-    tubTrimLastSeconds(3, simTime);
+    // No trim during autopilot: those laps were never recorded, so the
+    // trim would eat the tail of the user's manual data instead. The
+    // reset still applies -- the model gets put back on the line to try
+    // again (throttle zeroing is moot there; the next prediction
+    // reapplies it, which is what "watch it fail and retry" wants).
+    if (!pilot.active) tubTrimLastSeconds(3, simTime);
     resetCar();
     input.throttle = 0;
     cte = 0;

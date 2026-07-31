@@ -7,9 +7,20 @@ import { input, onReset } from './input.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps, drawDataset } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
+import { pilot, pilotPredict, setPilotActive, loadPilotModel, onPilotDeactivate } from '../train/autopilot.js';
 import './trainui.js';
+import { drawPilot } from './pilotui.js';
 
-onReset(resetCar);
+// A reset means "back on the line, standing still": killing the throttle
+// belongs with it, or the car immediately drives off again on whatever
+// throttle was held (the user's scroll level after R, or the model's last
+// prediction after switching autopilot off).
+function resetToLine() {
+  resetCar();
+  input.throttle = 0;
+}
+onReset(resetToLine);
+onPilotDeactivate(resetToLine);
 
 // Not awaited: the sim starts driving immediately (recording just stays
 // paused via tub.loaded until this resolves) rather than blocking the
@@ -24,6 +35,7 @@ loadTub();
 // than whatever they were when this object was built.
 window.__sim = {
   input, V, tub, scene, training, trainStart, trainStop,
+  pilot, setPilotActive, loadPilotModel,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
@@ -71,6 +83,15 @@ function frame(now) {
   if (dt > 0.1) dt = 0.1;
   fpsA += (1/Math.max(dt,1e-4) - fpsA) * 0.05;
 
+  // In autopilot the model's latest prediction overwrites input right
+  // before physics, so stray mouse/key events between frames never steer
+  // the car. (Deliberately total override for M2; M3's intervention mode
+  // will let user input punch through and get recorded.)
+  if (pilot.active) {
+    input.steer = pilot.steer;
+    input.throttle = pilot.throttle;
+  }
+
   acc += dt;
   while (acc >= DT) {
     prevX = V.x; prevZ = V.z; prevHeading = V.heading;
@@ -101,16 +122,22 @@ function frame(now) {
   renderer.setRenderTarget(null);
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
-  // as physics -- only while driving forward and on the track
-  const isRecording = input.throttle > 0 && !offTrack;
+  // as physics -- only while the USER is driving forward on the track
+  // (autopilot laps are the model's output; feeding them back in as
+  // training data would just amplify its own mistakes)
+  const isRecording = !pilot.active && input.throttle > 0 && !offTrack;
   recAcc += dt;
   if (recAcc >= REC_DT) {
     recAcc -= REC_DT;
+    // Predict whenever a model is loaded, even in manual mode: that's the
+    // "shadow drive" needle -- model opinion vs. your hands, live.
+    if (pilot.ready) pilotPredict(povImage);
     if (isRecording) tubPush(simTime, input.steer, input.throttle);
   }
 
   drawHud();
   drawDataset(isRecording);
+  drawPilot();
   setFps(fpsA);
 }
 
