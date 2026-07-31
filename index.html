@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>donkey.web — M0 feel prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dusk-top:#8ea0d8; --dusk-low:#f2b98e;
+    --ink:#20242e; --panel:rgba(24,27,36,.82); --panel-line:rgba(255,255,255,.14);
+    --text:#f3efe8; --dim:#b9b4aa;
+    --cone:#ff6a2b;            /* safety-cone orange: the one accent */
+    --lane:#ffd23f;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:'IBM Plex Mono',monospace;color:var(--text);
+    background:linear-gradient(var(--dusk-top) 0%, #c3a7c9 55%, var(--dusk-low) 100%);
+  }
+  #view{position:fixed;inset:0;display:block;touch-action:none}
+
+  /* ---------- HUD chrome ---------- */
+  .hud{position:fixed;z-index:10;user-select:none;-webkit-user-select:none}
+
+  #brand{top:14px;left:16px;line-height:1.15}
+  #brand .word{font-family:'Chakra Petch';font-weight:700;font-size:20px;letter-spacing:.04em}
+  #brand .word b{color:var(--cone);font-weight:700}
+  #brand .sub{font-size:10px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+
+  /* signature: the raw model-input feed */
+  #povwrap{top:14px;right:16px;text-align:right}
+  #povframe{
+    display:inline-block;background:var(--panel);border:1px solid var(--panel-line);
+    border-radius:6px;padding:6px 6px 4px;backdrop-filter:blur(6px);
+  }
+  #pov{width:240px;height:180px;display:block;image-rendering:pixelated;border-radius:3px;background:#000}
+  #povlabel{display:flex;justify-content:space-between;gap:12px;font-size:9.5px;color:var(--dim);
+    letter-spacing:.12em;text-transform:uppercase;padding:5px 2px 1px}
+  #povlabel .rec{color:var(--cone)}
+  #povlabel .rec::before{content:'●';margin-right:5px;animation:blink 1.6s steps(1) infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* telemetry strip */
+  #telem{
+    left:50%;bottom:16px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:22px;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
+    padding:10px 18px;backdrop-filter:blur(6px);white-space:nowrap;
+  }
+  .t-item{display:flex;flex-direction:column;gap:4px;min-width:64px}
+  .t-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .t-value{font-family:'Chakra Petch';font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
+  .t-value small{font-size:10px;color:var(--dim);font-weight:500;margin-left:2px}
+  .bar{position:relative;width:110px;height:8px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden}
+  #steerbar{width:150px}
+  #steerbar .fill{position:absolute;top:0;bottom:0;left:50%;background:var(--cone);border-radius:4px}
+  #steerbar .tick{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,.4)}
+  #throtbar .fill{position:absolute;top:0;bottom:0;left:0;background:var(--text);border-radius:4px}
+  .offtrack .t-value{color:var(--cone)}
+
+  /* helper toast */
+  #hint{
+    left:50%;top:20%;transform:translateX(-50%);text-align:center;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
+    padding:14px 22px;backdrop-filter:blur(6px);transition:opacity .6s;
+  }
+  #hint h1{font-family:'Chakra Petch';font-weight:600;font-size:15px;letter-spacing:.02em;margin-bottom:6px}
+  #hint p{font-size:11.5px;color:var(--dim);line-height:1.7}
+  #hint kbd{
+    font-family:inherit;font-size:10.5px;color:var(--text);
+    border:1px solid var(--panel-line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;margin:0 2px;
+  }
+  #hint.gone{opacity:0;pointer-events:none}
+
+  /* touch controls (only shown on coarse pointers) */
+  #touch{display:none;position:fixed;inset:auto 0 0 0;z-index:9;padding:0 18px 18px;justify-content:space-between;pointer-events:none}
+  @media (pointer:coarse){ #touch{display:flex} #telem{bottom:104px} }
+  .pad{display:flex;gap:12px;pointer-events:auto}
+  .pbtn{
+    width:64px;height:64px;border-radius:14px;border:1px solid var(--panel-line);
+    background:var(--panel);color:var(--text);font-size:22px;backdrop-filter:blur(6px);
+  }
+  .pbtn:active{background:var(--cone);border-color:var(--cone)}
+
+  @media (max-width:760px){
+    #pov{width:160px;height:120px}
+    #telem{gap:14px;padding:8px 12px}
+    .t-item{min-width:52px}
+    #steerbar{width:100px}.bar{width:80px}
+  }
+  @media (prefers-reduced-motion:reduce){ #povlabel .rec::before{animation:none} }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div class="hud" id="brand">
+  <div class="word">donkey<b>.</b>web</div>
+  <div class="sub">M0 · feel prototype</div>
+</div>
+
+<div class="hud" id="povwrap">
+  <div id="povframe">
+    <canvas id="pov" width="160" height="120"></canvas>
+    <div id="povlabel"><span class="rec">cam</span><span>160×120 · model input</span></div>
+  </div>
+</div>
+
+<div class="hud" id="hint">
+  <h1>Take a lap</h1>
+  <p>Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
+  The small screen is exactly what your model will see.</p>
+</div>
+
+<div class="hud" id="telem">
+  <div class="t-item"><span class="t-label">Speed</span><span class="t-value" id="tSpeed">0<small>km/h</small></span></div>
+  <div class="t-item"><span class="t-label">Steering</span><div class="bar" id="steerbar"><div class="tick"></div><div class="fill" id="steerfill"></div></div></div>
+  <div class="t-item"><span class="t-label">Throttle</span><div class="bar" id="throtbar"><div class="fill" id="throtfill"></div></div></div>
+  <div class="t-item" id="cteItem"><span class="t-label">Off-center</span><span class="t-value" id="tCte">0.0<small>m</small></span></div>
+  <div class="t-item"><span class="t-label">Sim</span><span class="t-value" id="tFps">–<small>fps</small></span></div>
+</div>
+
+<div id="touch">
+  <div class="pad">
+    <button class="pbtn" data-k="left">◀</button>
+    <button class="pbtn" data-k="right">▶</button>
+  </div>
+  <div class="pad">
+    <button class="pbtn" data-k="brake">−</button>
+    <button class="pbtn" data-k="gas">▲</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="sim/main.js"></script>
+</body>
+</html>
