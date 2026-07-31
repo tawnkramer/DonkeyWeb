@@ -77,6 +77,20 @@ let fpsA = 60;
 let prevX = V.x, prevZ = V.z, prevHeading = V.heading;
 const REC_DT = 1/20;
 let recAcc = 0;
+
+// Rendering -- the main view, the separate offscreen POV render, and its
+// GPU->CPU pixel readback (a hard sync point) -- is by far the most
+// expensive part of each tick, and pilotPredict is a real TF.js forward
+// pass on top of that. None of it changes anything once the car is fully
+// stopped and nothing (autopilot included) is driving it: same physics
+// state in means the same pixels out. IDLE_SETTLE_S waits out the chase
+// cam's follow-lerp actually converging (not just the car stopping)
+// before skipping that work, so parking doesn't visibly snap the camera.
+// Physics/HUD/telemetry keep running every tick regardless of idleness,
+// so any input resumes full rendering on the very frame it matters.
+const IDLE_SETTLE_S = 1.5;
+let idleDt = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - last) / 1000;
@@ -105,22 +119,31 @@ function frame(now) {
                prevZ + (V.z - prevZ) * rAlpha,
                prevHeading + (V.heading - prevHeading) * rAlpha);
 
-  // main view
-  renderer.setRenderTarget(null);
-  renderer.render(scene, chaseCam);
+  // Stationary means the car's own state stopped changing this tick;
+  // autopilot always counts as active regardless of its current speed,
+  // since it needs a continuous, fresh camera feed to keep perceiving.
+  const stationary = V.speed === 0 && !pilot.active;
+  idleDt = stationary ? idleDt + dt : 0;
+  const idle = idleDt > IDLE_SETTLE_S;
 
-  // POV → 160×120 buffer → HUD canvas (this buffer is the future training frame)
-  renderer.setRenderTarget(povTarget);
-  renderer.render(scene, povCam);
-  renderer.readRenderTargetPixels(povTarget, 0, 0, POV_W, POV_H, povPixels);
-  // flip vertically (GL origin is bottom-left)
-  const d = povImage.data;
-  for (let y = 0; y < POV_H; y++) {
-    const src = (POV_H - 1 - y) * POV_W * 4;
-    d.set(povPixels.subarray(src, src + POV_W*4), y * POV_W * 4);
+  if (!idle) {
+    // main view
+    renderer.setRenderTarget(null);
+    renderer.render(scene, chaseCam);
+
+    // POV → 160×120 buffer → HUD canvas (this buffer is the future training frame)
+    renderer.setRenderTarget(povTarget);
+    renderer.render(scene, povCam);
+    renderer.readRenderTargetPixels(povTarget, 0, 0, POV_W, POV_H, povPixels);
+    // flip vertically (GL origin is bottom-left)
+    const d = povImage.data;
+    for (let y = 0; y < POV_H; y++) {
+      const src = (POV_H - 1 - y) * POV_W * 4;
+      d.set(povPixels.subarray(src, src + POV_W*4), y * POV_W * 4);
+    }
+    povCtx.putImageData(povImage, 0, 0);
+    renderer.setRenderTarget(null);
   }
-  povCtx.putImageData(povImage, 0, 0);
-  renderer.setRenderTarget(null);
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
   // as physics -- only while the USER is driving forward on the track
@@ -131,7 +154,10 @@ function frame(now) {
   if (recAcc >= REC_DT) {
     recAcc -= REC_DT;
     // Predict whenever a model is loaded, even in manual mode: that's the
-    // "shadow drive" needle -- model opinion vs. your hands, live.
+    // "shadow drive" needle -- model opinion vs. your hands, live, even
+    // while parked. Not gated on idle like the render above: povImage is
+    // just stale rather than skipped, and a stale-but-unchanged frame
+    // (nothing moved) is exactly what a fresh render would produce anyway.
     if (pilot.ready) pilotPredict(povImage);
     if (isRecording) tubPush(simTime, input.steer, input.throttle);
   }
@@ -140,7 +166,7 @@ function frame(now) {
   drawDataset(isRecording);
   drawDatasetEditorAvailability();
   drawPilot();
-  setFps(fpsA);
+  setFps(fpsA, idle);
 }
 
 // ---------- resize ----------

@@ -1,13 +1,14 @@
 import { pilot, setPilotActive, loadPilotModel } from '../train/autopilot.js';
 import { onTraining } from '../train/trainer.js';
+import { dismissHint } from './input.js';
 
 // ---------- autopilot toggle ----------
 // 'P' rather than 'A' for the shortcut: A is already steer-left.
 const btn = document.getElementById('pilotBtn');
 
-btn.addEventListener('click', () => setPilotActive(!pilot.active));
+btn.addEventListener('click', () => { dismissHint(); setPilotActive(!pilot.active); });
 addEventListener('keydown', (e) => {
-  if ((e.key === 'p' || e.key === 'P') && pilot.ready) setPilotActive(!pilot.active);
+  if ((e.key === 'p' || e.key === 'P') && pilot.ready) { dismissHint(); setPilotActive(!pilot.active); }
 });
 
 // Immediate-mode like the rest of the HUD: called every frame from the

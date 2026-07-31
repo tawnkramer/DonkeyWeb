@@ -137,12 +137,13 @@
     background:var(--lane);box-shadow:0 0 4px rgba(255,210,63,.7);display:none}
   #throtbar .fill{position:absolute;top:0;bottom:0;left:0;background:var(--text);border-radius:4px}
   .offtrack .t-value{color:var(--cone)}
+  #tFps.idle{color:var(--dim)}
 
   /* helper toast */
   #hint{
     left:50%;top:20%;transform:translateX(-50%);text-align:center;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
-    padding:14px 22px;backdrop-filter:blur(6px);transition:opacity .6s;
+    padding:14px 26px;backdrop-filter:blur(6px);transition:opacity .6s;
   }
   #hint h1{font-family:'Chakra Petch';font-weight:600;font-size:15px;letter-spacing:.02em;margin-bottom:6px}
   #hint p{font-size:11.5px;color:var(--dim);line-height:1.7}
@@ -151,6 +152,11 @@
     border:1px solid var(--panel-line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;margin:0 2px;
   }
   #hint.gone{opacity:0;pointer-events:none}
+  #hintClose{
+    position:absolute;top:4px;right:6px;background:transparent;border:none;
+    color:#e0483e;font-size:16px;line-height:1;cursor:pointer;padding:4px 6px;
+  }
+  #hintClose:hover{color:#ff6b5e}
 
   /* touch controls (only shown on coarse pointers) */
   #touch{display:none;position:fixed;inset:auto 0 0 0;z-index:9;padding:0 18px 18px;justify-content:space-between;pointer-events:none}
@@ -221,6 +227,7 @@
 </div>
 
 <div class="hud" id="hint">
+  <button id="hintClose" aria-label="dismiss">&times;</button>
   <h1>Take a lap</h1>
   <p>Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
   The small screen is exactly what your model will see.</p>

@@ -29,8 +29,9 @@ export function drawHud() {
   el.cteItem.classList.toggle('offtrack', offTrack);
 }
 
-export function setFps(fpsA) {
-  el.fps.innerHTML = Math.round(fpsA) + '<small>fps</small>';
+export function setFps(fpsA, idle) {
+  el.fps.classList.toggle('idle', idle);
+  el.fps.innerHTML = idle ? 'idle' : Math.round(fpsA) + '<small>fps</small>';
 }
 
 // ---------- dataset quality ----------

@@ -1,5 +1,6 @@
 import { tub, tubTrimToLength } from '../data/tub.js';
 import { dbGet } from '../data/db.js';
+import { dismissHint } from './input.js';
 
 // ---------- dataset editor ----------
 // Minimal viewer/editor for the recorded tub: scrub to a frame, see its
@@ -19,6 +20,7 @@ let objectUrl = null;
 
 function open() {
   if (!tub.frames.length) return;
+  dismissHint();
   scrub.max = String(tub.frames.length - 1);
   scrub.value = String(tub.frames.length - 1);
   panel.hidden = false;

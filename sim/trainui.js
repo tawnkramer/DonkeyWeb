@@ -1,4 +1,5 @@
 import { training, trainStart, trainStop, onTraining } from '../train/trainer.js';
+import { dismissHint } from './input.js';
 
 // ---------- train panel ----------
 // One button and a live loss chart. The chart shows per-batch train loss
@@ -14,6 +15,7 @@ const CONE = '#ff6a2b';
 const LIGHT = 'rgba(243,239,232,.5)';
 
 btn.addEventListener('click', () => {
+  dismissHint();
   if (training.state === 'running') trainStop();
   else trainStart();
 });

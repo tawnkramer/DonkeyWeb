@@ -67,4 +67,5 @@ addEventListener('wheel', e => {
 }, {passive:false});
 
 let hintGone = false;
-function dismissHint(){ if (!hintGone){ hintGone = true; document.getElementById('hint').classList.add('gone'); } }
+export function dismissHint(){ if (!hintGone){ hintGone = true; document.getElementById('hint').classList.add('gone'); } }
+document.getElementById('hintClose').addEventListener('click', dismissHint);
