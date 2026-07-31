@@ -1,24 +1,120 @@
-# donkey-web
+# donkey.web
 
-Browser-first donkeycar: drive, train, autopilot.
+Browser-first [donkeycar](https://www.donkeycar.com/): drive, train, and run
+autopilot -- entirely client-side, no installs, no Python environment, no
+GPU drivers to set up.
 
-## Setup
+A small three.js sim stands in for a real donkeycar and track. You drive it
+by hand, record the driving as training data, train a real convolutional
+network (TensorFlow.js) on that data right in the tab, then watch the model
+drive the same track back on autopilot.
 
-The app serves fully self-hosted (no runtime CDN): three.js and TensorFlow.js
-are vendored into `/vendor`. After `npm install`, regenerate them with:
+The model is an exact layer-for-layer clone of donkeycar's `KerasLinear`
+(`default_n_linear`) architecture -- same conv/dense stack, same layer
+names -- so a model trained here stays weight-compatible with a real
+donkeycar, not just conceptually similar to one.
+
+## Features
+
+- **Drive**: mouse steers, scroll wheel (or `W`/`S`) controls throttle --
+  continuous input, not on/off keys, because that's what trains a good
+  model. `R` resets to the start line.
+- **Record**: every driven frame (image + steering + throttle) is captured
+  to IndexedDB automatically while you drive forward on-track. A live
+  steering histogram shows you when your data is too straight-line-heavy to
+  train a model that can recover from a curve.
+- **Dataset editor**: scrub through recorded frames, preview each one, and
+  cut a bad tail (e.g. autopilot left engaged, or a stuck throttle) without
+  losing the good data before it.
+- **Train**: one button trains the model in a background Web Worker (WebGPU
+  -> WebGL -> CPU, whichever this browser supports) with a live per-batch
+  loss chart, so the tab never freezes while it trains.
+- **Autopilot**: the trained model drives. A "shadow needle" overlay shows
+  the model's opinion vs. your own steering even while you're still driving
+  manually, so you can see how it's doing before trusting it with the wheel.
+
+## Quick start
+
+No build step, no install, no server-side anything -- the app is served as
+plain static files, and the only two third-party libraries it needs
+(three.js, TensorFlow.js) are already vendored into `/vendor`.
 
 ```bash
-npm run vendor
+git clone https://github.com/<you>/donkey-web.git
+cd donkey-web
+node test/serve.js        # or: ./scripts/serve.sh
 ```
 
-## Test
+Then open the URL it prints (`http://localhost:8734` by default; set
+`PORT=xxxx` to use a different one). That's it -- just [Node.js](https://nodejs.org/)
+itself is required, nothing else.
 
-Run the browser test suite with:
+## Controls
+
+| Input | Effect |
+|---|---|
+| Mouse | Steer (continuous, follows cursor position relative to screen center) |
+| Scroll wheel / `W` `S` | Throttle up/down |
+| Arrow keys / `A` `D` | Snap steering full left/right (keyboard is on/off, not continuous) |
+| `R` | Reset to the start line |
+| `P` | Toggle autopilot (once a model has been trained) |
+| Touch | On-screen d-pad appears automatically on touch devices |
+
+## Development
+
+Everything above needs nothing but Node. The rest of this section is for
+working on the app itself.
 
 ```bash
-CHROME_PATH=/usr/bin/google-chrome bash ./scripts/test.sh
+npm install       # dev tooling only: esbuild, puppeteer-core
+npm test          # fast test suite (see below)
+npm run vendor    # regenerate /vendor after bumping pinned versions
 ```
 
-Notes:
-- `scripts/test.sh` runs only `test/*.test.js`, one file at a time.
-- `CHROME_PATH` forces Puppeteer to use the non-Snap Chrome binary on Ubuntu when available.
+### Tests
+
+```bash
+CHROME_PATH=/usr/bin/google-chrome npm test
+```
+
+- `scripts/test.sh` runs each `test/*.test.js` file against a real headless
+  Chrome via Puppeteer, one file at a time.
+- `CHROME_PATH` points at a real Chrome/Chromium binary; on Ubuntu this
+  avoids picking up the Snap-packaged Chromium, which Puppeteer can't drive.
+  If unset, it falls back to common install paths (see `test/helpers.js`).
+- `test/training.test.js` actually trains a real model end-to-end and is by
+  far the slowest file (a real TF.js training run through a software-only
+  WebGL backend in CI-style environments), so it's **skipped by default**.
+  Set `RUN_TRAINING_TESTS=1` to include it -- do this whenever you've
+  touched `train/`, `data/tub.js`, or the test itself, or before a final
+  check.
+
+### Regenerating `/vendor`
+
+`/vendor/tf.mjs` and `/vendor/three.module.js` are committed so the app
+runs with zero build step out of the box. `npm run vendor` (via
+`scripts/vendor.sh`) rebuilds them from the pinned versions in
+`package.json` -- only needed after bumping those versions, not for normal
+day-to-day use.
+
+## Project layout
+
+```
+index.html          entry point, HUD markup + styling
+sim/                 three.js scene, vehicle physics, input, HUD/UI wiring
+data/                the recorded "tub" (frames) and its IndexedDB backing
+train/               model architecture, training worker, autopilot inference
+test/                browser test suite (node --test + Puppeteer) and the dev server
+scripts/             dev-server wrapper, test runner, vendor build
+vendor/              self-hosted three.js + TensorFlow.js builds (see above)
+```
+
+## Browser support
+
+Needs a browser with WebGL and IndexedDB (i.e. any current Chrome, Edge,
+Firefox, or Safari). WebGPU is used opportunistically for training/autopilot
+where available and falls back to WebGL otherwise.
+
+## License
+
+[MIT](LICENSE) -- same license as [donkeycar](https://github.com/autorope/donkeycar) itself.

@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Browser-first donkeycar: drive, train, autopilot -- zero install.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "serve": "node test/serve.js",
