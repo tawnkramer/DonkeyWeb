@@ -278,27 +278,38 @@ scene.add(ribbon(-TRACK_W/2-0.05, -TRACK_W/2+0.28, 0.045, 0xf3efe8));
   scene.add(dashes);
 }
 
-// start / finish checker strip
+// start / finish checker strip, built from small flat-colored cells (like
+// the dashes above) instead of vertex-colored quads: vertex colors are
+// interpolated across shared vertices, which turns a checker pattern into
+// a soft gradient instead of crisp squares. Reuses the dashes' quaternion
+// "lay flat, then aim along the tangent" transform too -- composing
+// rotation.x and rotation.z as separate Euler angles doesn't spin the
+// strip around the vertical axis the way it looks like it should; with Y
+// up, that needs rotation.y, and mixing x+z Euler rotations instead tips
+// the whole strip out of the ground plane.
 {
-  const g = new THREE.PlaneGeometry(TRACK_W, 1.4, 8, 2);
-  const colors = [];
-  const posAttr = g.attributes.position;
-  // simple checker via vertex colors on segments
-  const c1 = new THREE.Color(0xf3efe8), c2 = new THREE.Color(0x20242e);
-  for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i), y = posAttr.getY(i);
-    const cx = Math.floor((x + TRACK_W/2) / (TRACK_W/8));
-    const cy = y > 0 ? 0 : 1;
-    const col = (cx + cy) % 2 ? c1 : c2;
-    colors.push(col.r, col.g, col.b);
-  }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const strip = new THREE.Mesh(g, new THREE.MeshBasicMaterial({vertexColors:true}));
-  strip.rotation.x = -Math.PI/2;
+  const CELLS_X = 8, CELLS_Y = 2;
+  const cellW = TRACK_W / CELLS_X, cellL = 1.4 / CELLS_Y;
+  const cellGeo = new THREE.PlaneGeometry(cellW * 0.98, cellL * 0.98);
+  const matLight = new THREE.MeshBasicMaterial({color:0xf3efe8});
+  const matDark  = new THREE.MeshBasicMaterial({color:0x20242e});
+  const cellCount = Math.ceil(CELLS_X * CELLS_Y / 2) + 1;
+  const light = new THREE.InstancedMesh(cellGeo, matLight, cellCount);
+  const dark  = new THREE.InstancedMesh(cellGeo, matDark, cellCount);
   const c0 = centers[0], t0 = tangents[0];
-  strip.position.set(c0.x, 0.055, c0.z);
-  strip.rotation.z = -Math.atan2(t0.x, t0.z);
-  scene.add(strip);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), t0)
+              .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2));
+  const M = new THREE.Matrix4();
+  let kL = 0, kD = 0;
+  for (let cx = 0; cx < CELLS_X; cx++) {
+    for (let cy = 0; cy < CELLS_Y; cy++) {
+      const local = new THREE.Vector3((cx - (CELLS_X-1)/2) * cellW, (cy - (CELLS_Y-1)/2) * cellL, 0).applyQuaternion(q);
+      M.compose(new THREE.Vector3(c0.x + local.x, 0.055 + local.y, c0.z + local.z), q, new THREE.Vector3(1,1,1));
+      if ((cx + cy) % 2) light.setMatrixAt(kL++, M); else dark.setMatrixAt(kD++, M);
+    }
+  }
+  light.count = kL; dark.count = kD;
+  scene.add(light, dark);
 }
 
 // ---------- scenery: cones on tight corners, low-poly trees ----------
