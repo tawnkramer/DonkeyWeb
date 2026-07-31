@@ -59,10 +59,38 @@
   #dHist{position:relative;height:32px;display:flex;align-items:flex-end;gap:2px;margin-top:6px}
   #dHist .bar{flex:1;background:var(--dim);border-radius:1px 1px 0 0;min-height:2px;transition:height .2s}
   #dHist .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
+  #dataEditBtn{
+    width:100%;margin-top:8px;padding:5px 0;border-radius:6px;
+    border:1px solid var(--panel-line);background:transparent;color:var(--text);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:11px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  #dataEditBtn:disabled{opacity:.4;cursor:default}
+
+  /* dataset editor: scrub the recorded tub, preview a frame, cut a bad tail */
+  #datasetEditor{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(10,11,15,.55)}
+  #datasetEditor[hidden]{display:none}
+  #datasetEditor .de-card{
+    width:300px;background:var(--panel);border:1px solid var(--panel-line);border-radius:10px;
+    padding:14px;backdrop-filter:blur(6px);box-sizing:border-box;
+  }
+  #datasetEditor .de-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  #deClose{background:transparent;border:none;color:var(--text);font-size:20px;line-height:1;cursor:pointer;padding:0}
+  #deImg{width:100%;height:180px;object-fit:contain;background:#000;border-radius:4px;image-rendering:pixelated;display:block}
+  #deInfo{margin:8px 0;font-size:10px;letter-spacing:.04em;color:var(--dim)}
+  #deScrub{width:100%}
+  #deScrub:disabled{opacity:.4;cursor:default}
+  #deDeleteBtn{
+    width:100%;margin-top:10px;padding:7px 0;border-radius:6px;
+    border:1px solid var(--cone);background:transparent;color:var(--cone);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:12.5px;
+    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
+  }
+  #deDeleteBtn:disabled{opacity:.4;cursor:default}
 
   /* train panel: one button + live loss chart (train per batch, val per epoch) */
   #train{
-    top:304px;right:16px;width:240px;
+    top:340px;right:16px;width:240px;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
     padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
   }
@@ -137,7 +165,7 @@
   @media (max-width:760px){
     #pov{width:160px;height:120px}
     #dataset{top:176px;width:160px}
-    #train{top:250px;width:160px}
+    #train{top:294px;width:160px}
     #telem{gap:14px;padding:8px 12px}
     .t-item{min-width:52px}
     #steerbar{width:100px}.bar{width:80px}
@@ -166,6 +194,20 @@
     <span class="t-value" id="dFrames">0<small>frames</small></span>
   </div>
   <div id="dHist"><div class="mid"></div></div>
+  <button id="dataEditBtn" disabled>edit dataset</button>
+</div>
+
+<div class="hud" id="datasetEditor" hidden>
+  <div class="de-card">
+    <div class="de-head">
+      <span class="t-label">Dataset editor</span>
+      <button id="deClose" aria-label="close">&times;</button>
+    </div>
+    <img id="deImg" alt="frame preview">
+    <div id="deInfo"></div>
+    <input type="range" id="deScrub" min="0" max="0" value="0" step="1">
+    <button id="deDeleteBtn">delete from here to end</button>
+  </div>
 </div>
 
 <div class="hud" id="train">

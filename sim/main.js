@@ -10,6 +10,7 @@ import { training, trainStart, trainStop } from '../train/trainer.js';
 import { pilot, pilotPredict, setPilotActive, loadPilotModel, onPilotDeactivate } from '../train/autopilot.js';
 import './trainui.js';
 import { drawPilot } from './pilotui.js';
+import { drawDatasetEditorAvailability } from './datasetui.js';
 
 // A reset means "back on the line, standing still": killing the throttle
 // belongs with it, or the car immediately drives off again on whatever
@@ -137,6 +138,7 @@ function frame(now) {
 
   drawHud();
   drawDataset(isRecording);
+  drawDatasetEditorAvailability();
   drawPilot();
   setFps(fpsA);
 }

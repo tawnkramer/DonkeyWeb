@@ -1,5 +1,5 @@
 import { povCanvas } from '../sim/scene.js';
-import { dbPut, dbDelete, dbGetAll } from './db.js';
+import { dbPut, dbDelete, dbDeleteMany, dbGetAll } from './db.js';
 
 // ---------- recording (tub) ----------
 // Frames persist to IndexedDB so the tub survives a reload -- see
@@ -68,15 +68,52 @@ export function tubPush(t, steer, throttle) {
   }, 'image/jpeg', 0.7);
 }
 
+// Shared by both trim paths below. Frames pushed this session carry a
+// persistDone promise and must wait for their JPEG write to land before
+// the delete (see tubPush); frames restored by loadTub() from a prior
+// session are already fully persisted and have no such promise to wait on.
+function removeFrame(removed) {
+  removed.trimmed = true;
+  tub.bins[binIndex(removed.steer)]--;
+  const del = () => dbDelete(removed.id).catch(err => console.warn('tub: failed to delete frame', err));
+  if (removed.persistDone) removed.persistDone.then(del);
+  else del();
+}
+
 export function tubTrimLastSeconds(seconds, simTime) {
   const cutoff = simTime - seconds;
   while (tub.frames.length && tub.frames[tub.frames.length - 1].t > cutoff) {
-    const removed = tub.frames.pop();
-    removed.trimmed = true;
-    tub.bins[binIndex(removed.steer)]--;
-    removed.persistDone.then(() => {
-      dbDelete(removed.id).catch(err => console.warn('tub: failed to delete frame', err));
-    });
+    removeFrame(tub.frames.pop());
+  }
+}
+
+// Drops every frame after the first `keepCount`, e.g. to cut a bad tail
+// (autopilot left engaged, throttle stuck barely non-zero, ...) spotted
+// after the fact in the dataset editor. Unlike tubTrimLastSeconds (a
+// handful of frames, every tick) this can mean thousands at once, so it
+// goes through dbDeleteMany's single transaction instead of removeFrame's
+// one-transaction-per-frame -- that isn't just slow at this scale, it can
+// starve any IndexedDB request made afterwards (e.g. the dataset editor's
+// next preview fetch) behind a queue of thousands of pending deletes.
+// Async and meant to be awaited for the same reason: the caller must not
+// touch IndexedDB again (like fetching a new preview frame) until this
+// has actually finished.
+export async function tubTrimToLength(keepCount) {
+  const removed = [];
+  while (tub.frames.length > keepCount) removed.push(tub.frames.pop());
+  if (!removed.length) return;
+  for (const r of removed) {
+    r.trimmed = true;
+    tub.bins[binIndex(r.steer)]--;
+  }
+  // Frames still mid-encode this session must land in IndexedDB before
+  // they can be deleted from it; already-persisted frames (the common
+  // case for a historical cleanup like this) have no such promise.
+  await Promise.all(removed.filter(r => r.persistDone).map(r => r.persistDone));
+  try {
+    await dbDeleteMany(removed.map(r => r.id));
+  } catch (err) {
+    console.warn('tub: failed to delete frames', err);
   }
 }
 
