@@ -33,10 +33,11 @@
   /* signature: the raw model-input feed */
   #povwrap{top:14px;right:16px;text-align:right}
   #povframe{
-    display:inline-block;background:var(--panel);border:1px solid var(--panel-line);
+    display:inline-block;width:240px;box-sizing:border-box;
+    background:var(--panel);border:1px solid var(--panel-line);
     border-radius:6px;padding:6px 6px 4px;backdrop-filter:blur(6px);
   }
-  #pov{width:240px;height:180px;display:block;image-rendering:pixelated;border-radius:3px;background:#000}
+  #pov{width:226px;height:170px;display:block;image-rendering:pixelated;border-radius:3px;background:#000}
   #povlabel{display:flex;justify-content:space-between;gap:12px;font-size:9.5px;color:var(--dim);
     letter-spacing:.12em;text-transform:uppercase;padding:5px 2px 1px}
   #povlabel .rec::before{content:'●';margin-right:5px}
@@ -48,7 +49,7 @@
      straight" data visibly piles up in the middle instead of being an
      invisible problem you only discover after training */
   #dataset{
-    top:222px;right:16px;width:240px;
+    top:223px;right:16px;width:240px;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
     padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
   }
@@ -90,7 +91,7 @@
 
   /* train panel: one button + live loss chart (train per batch, val per epoch) */
   #train{
-    top:340px;right:16px;width:240px;
+    top:341px;right:16px;width:240px;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
     padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
   }
@@ -169,7 +170,8 @@
   .pbtn:active{background:var(--cone);border-color:var(--cone)}
 
   @media (max-width:760px){
-    #pov{width:160px;height:120px}
+    #povframe{width:160px}
+    #pov{width:146px;height:110px}
     #dataset{top:176px;width:160px}
     #train{top:294px;width:160px}
     #telem{gap:14px;padding:8px 12px}
