@@ -4,10 +4,15 @@ import './track.js';
 import './scenery.js';
 import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
 import { input, onReset } from './input.js';
-import { tub, tubPush } from '../data/tub.js';
+import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps, drawDataset } from './hud.js';
 
 onReset(resetCar);
+
+// Not awaited: the sim starts driving immediately (recording just stays
+// paused via tub.loaded until this resolves) rather than blocking the
+// "drivable in under 10 seconds" startup goal on an IndexedDB round trip.
+loadTub();
 
 // Lightweight console/debug hook -- ES module state is private to its
 // module (unlike the old single-file version's classic <script>, where
