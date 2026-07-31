@@ -191,16 +191,18 @@ scene.add(ground);
 
 // ---------- track (closed Catmull-Rom spline) ----------
 const TRACK_W = 7;                 // road width (m)
-// The start/finish point [0,0] sits between [18,-30] and [7,7] in the loop,
-// where the raw direction change is a ~130° hairpin. That's tighter than the
-// road's own half-width, which would make the road's edges fold across each
-// other right at the apex. [7,7] (and the closing point [0.8,-8] near the
-// end) are a small chamfer that opens the apex up to a rideable radius while
-// keeping the same start position and roughly the same hairpin shape.
+// The start/finish point [0,0] originally sat between [18,-30] and [34,-6],
+// a raw ~130° hairpin -- tighter than the road's own half-width (self-
+// intersecting) and noticeably tighter than every other corner on the loop
+// (which range ~10-25m radius). [10.4,5.2] and [-3.7,-10.3] are eased
+// chamfer points, and the two original neighbors were nudged outward
+// ([18,-30]->[0,-30], [34,-6]->[43,-3]) so the whole start/finish area
+// turns at roughly the same comfortable radius (~9m) as the rest of the
+// track instead of reading as an outlier hairpin.
 const ctrl = [
-  [  0,   0], [  7,   7], [ 34,  -6], [ 58,   8], [ 66,  36], [ 46,  56],
-  [ 14,  50], [ -6,  66], [-40,  62], [-58,  34], [-50,   4],
-  [-64, -26], [-42, -50], [ -8, -46], [ 18, -30], [0.8,  -8]
+  [  0,    0], [ 10.4,  5.2], [ 43,  -3], [ 58,   8], [ 66,  36], [ 46,  56],
+  [ 14,   50], [ -6,   66], [-40,  62], [-58,  34], [-50,   4],
+  [-64,  -26], [-42,  -50], [ -8, -46], [  0, -30], [-3.7, -10.3]
 ].map(p => new THREE.Vector3(p[0], 0, p[1]));
 const spline = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
 
