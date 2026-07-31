@@ -111,7 +111,7 @@
 
 <div class="hud" id="hint">
   <h1>Take a lap</h1>
-  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrow keys to drive · <kbd>R</kbd> reset to line<br>
+  <p>Move mouse to steer · <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> for throttle · <kbd>R</kbd> reset to line<br>
   The small screen is exactly what your model will see.</p>
 </div>
 
@@ -452,27 +452,41 @@ function updateNearest() {
 }
 
 // ---------- input ----------
-const input = {left:false, right:false, gas:false, brake:false};
+// input.steer is the continuous value the sim actually drives on, in
+// [-1,1] (+1 = full left). Keyboard/touch are inherently on/off, which
+// produces sparse, bang-bang steering data that's a poor behavior-cloning
+// target -- a human on keys tends to hold straight and snap-correct,
+// rather than track a continuous line. Mouse position gives a genuinely
+// continuous signal instead: input.steer follows the cursor's horizontal
+// offset from screen center every time it moves, independent of the
+// discrete left/right key state.
+const input = {left:false, right:false, gas:false, brake:false, steer:0};
 const keymap = {
   ArrowLeft:'left', a:'left', A:'left',
   ArrowRight:'right', d:'right', D:'right',
   ArrowUp:'gas', w:'gas', W:'gas',
   ArrowDown:'brake', s:'brake', S:'brake'
 };
+function applyKeySteer(){ input.steer = (input.left?1:0) - (input.right?1:0); }
 addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') { resetCar(); return; }
   const k = keymap[e.key];
-  if (k) { input[k] = true; e.preventDefault(); dismissHint(); }
+  if (k) { input[k] = true; if (k==='left'||k==='right') applyKeySteer(); e.preventDefault(); dismissHint(); }
 });
-addEventListener('keyup', e => { const k = keymap[e.key]; if (k) input[k] = false; });
+addEventListener('keyup', e => { const k = keymap[e.key]; if (k) { input[k] = false; if (k==='left'||k==='right') applyKeySteer(); } });
 document.querySelectorAll('.pbtn').forEach(b => {
   const k = b.dataset.k;
-  const on  = e => { e.preventDefault(); input[k] = true; dismissHint(); };
-  const off = e => { e.preventDefault(); input[k] = false; };
+  const on  = e => { e.preventDefault(); input[k] = true; if (k==='left'||k==='right') applyKeySteer(); dismissHint(); };
+  const off = e => { e.preventDefault(); input[k] = false; if (k==='left'||k==='right') applyKeySteer(); };
   b.addEventListener('pointerdown', on);
   b.addEventListener('pointerup', off);
   b.addEventListener('pointerleave', off);
   b.addEventListener('pointercancel', off);
+});
+const STEER_SENSITIVITY_PX = 260; // mouse distance from center for full lock
+addEventListener('mousemove', e => {
+  const off = (e.clientX - innerWidth/2) / STEER_SENSITIVITY_PX;
+  input.steer = Math.max(-1, Math.min(1, -off));
 });
 let hintGone = false;
 function dismissHint(){ if (!hintGone){ hintGone = true; document.getElementById('hint').classList.add('gone'); } }
@@ -483,7 +497,7 @@ let cte = 0, offTrack = false, throttleVis = 0;
 
 function step(dt) {
   // steering: rate-limited toward target, washed out with speed
-  const target = (input.left ? 1 : 0) * V.MAX_STEER + (input.right ? -1 : 0) * V.MAX_STEER;
+  const target = input.steer * V.MAX_STEER;
   const dS = target - V.steer;
   const maxD = V.STEER_RATE * dt;
   V.steer += Math.max(-maxD, Math.min(maxD, dS));
