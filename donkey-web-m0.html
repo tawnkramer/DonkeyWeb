@@ -111,7 +111,7 @@
 
 <div class="hud" id="hint">
   <h1>Take a lap</h1>
-  <p>Move mouse to steer · <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> for throttle · <kbd>R</kbd> reset to line<br>
+  <p>Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
   The small screen is exactly what your model will see.</p>
 </div>
 
@@ -460,7 +460,11 @@ function updateNearest() {
 // continuous signal instead: input.steer follows the cursor's horizontal
 // offset from screen center every time it moves, independent of the
 // discrete left/right key state.
-const input = {left:false, right:false, gas:false, brake:false, steer:0};
+// input.throttle is the continuous counterpart to input.steer, in [-1,1]
+// (+1 = full gas, -1 = full brake/reverse). Scroll wheel adjusts it like a
+// physical accelerator: each tick nudges the level up or down and it
+// holds there, rather than needing to be held down like a key.
+const input = {left:false, right:false, gas:false, brake:false, steer:0, throttle:0};
 const keymap = {
   ArrowLeft:'left', a:'left', A:'left',
   ArrowRight:'right', d:'right', D:'right',
@@ -468,16 +472,29 @@ const keymap = {
   ArrowDown:'brake', s:'brake', S:'brake'
 };
 function applyKeySteer(){ input.steer = (input.left?1:0) - (input.right?1:0); }
+function applyKeyThrottle(){ input.throttle = (input.gas?1:0) - (input.brake?1:0); }
 addEventListener('keydown', e => {
   if (e.key === 'r' || e.key === 'R') { resetCar(); return; }
   const k = keymap[e.key];
-  if (k) { input[k] = true; if (k==='left'||k==='right') applyKeySteer(); e.preventDefault(); dismissHint(); }
+  if (k) {
+    input[k] = true;
+    if (k==='left'||k==='right') applyKeySteer();
+    if (k==='gas'||k==='brake') applyKeyThrottle();
+    e.preventDefault(); dismissHint();
+  }
 });
-addEventListener('keyup', e => { const k = keymap[e.key]; if (k) { input[k] = false; if (k==='left'||k==='right') applyKeySteer(); } });
+addEventListener('keyup', e => {
+  const k = keymap[e.key];
+  if (k) {
+    input[k] = false;
+    if (k==='left'||k==='right') applyKeySteer();
+    if (k==='gas'||k==='brake') applyKeyThrottle();
+  }
+});
 document.querySelectorAll('.pbtn').forEach(b => {
   const k = b.dataset.k;
-  const on  = e => { e.preventDefault(); input[k] = true; if (k==='left'||k==='right') applyKeySteer(); dismissHint(); };
-  const off = e => { e.preventDefault(); input[k] = false; if (k==='left'||k==='right') applyKeySteer(); };
+  const on  = e => { e.preventDefault(); input[k] = true; if (k==='left'||k==='right') applyKeySteer(); if (k==='gas'||k==='brake') applyKeyThrottle(); dismissHint(); };
+  const off = e => { e.preventDefault(); input[k] = false; if (k==='left'||k==='right') applyKeySteer(); if (k==='gas'||k==='brake') applyKeyThrottle(); };
   b.addEventListener('pointerdown', on);
   b.addEventListener('pointerup', off);
   b.addEventListener('pointerleave', off);
@@ -488,6 +505,11 @@ addEventListener('mousemove', e => {
   const off = (e.clientX - innerWidth/2) / STEER_SENSITIVITY_PX;
   input.steer = Math.max(-1, Math.min(1, -off));
 });
+const WHEEL_SENSITIVITY = 0.0008; // throttle change per unit of wheel deltaY
+addEventListener('wheel', e => {
+  input.throttle = Math.max(-1, Math.min(1, input.throttle - e.deltaY * WHEEL_SENSITIVITY));
+  e.preventDefault(); dismissHint();
+}, {passive:false});
 let hintGone = false;
 function dismissHint(){ if (!hintGone){ hintGone = true; document.getElementById('hint').classList.add('gone'); } }
 
@@ -504,14 +526,14 @@ function step(dt) {
 
   // longitudinal
   let a = 0;
-  if (input.gas)  a += V.ACCEL;
-  if (input.brake) a -= (V.speed > 0.3 ? V.BRAKE : V.ACCEL * 0.55); // brake, then reverse
+  if (input.throttle > 0) a += input.throttle * V.ACCEL;
+  if (input.throttle < 0) a += input.throttle * (V.speed > 0.3 ? V.BRAKE : V.ACCEL * 0.55); // brake, then reverse
   a -= V.DRAG * V.speed + V.ROLL * Math.sign(V.speed);
   if (offTrack) a -= 2.2 * V.speed * dt * 50 * 0.04 + 1.6; // grass drag
   V.speed += a * dt;
   V.speed = Math.max(-V.TOP*0.35, Math.min(V.TOP, V.speed));
-  if (!input.gas && !input.brake && Math.abs(V.speed) < 0.25) V.speed = 0;
-  throttleVis = input.gas ? 1 : (input.brake ? -1 : 0);
+  if (Math.abs(input.throttle) < 0.02 && Math.abs(V.speed) < 0.25) V.speed = 0;
+  throttleVis = input.throttle;
 
   // steering wash-out at speed (understeer feel without a tire model)
   const wash = 1 / (1 + Math.pow(Math.max(V.speed,0) / V.GRIP_V, 2) * 0.55);
