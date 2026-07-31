@@ -39,9 +39,10 @@ test('a saved model enables autopilot and its predictions drive the car', async 
     // actually drives the car -- the no-recording-during-autopilot test
     // below is only meaningful if input.throttle > 0 while the pilot is on.
     const head = m.getLayer('n_outputs1');
-    const [kernel, bias] = head.getWeights();
+    // getWeights() returns the layer's live variables, not copies -- do not
+    // dispose them, or save() fails with "bias is already disposed".
+    const [kernel] = head.getWeights();
     head.setWeights([kernel, tf.tensor1d([0.6])]);
-    bias.dispose();
     await m.save('indexeddb://donkeyweb-model');
     m.dispose();
   });
@@ -66,21 +67,30 @@ test('a saved model enables autopilot and its predictions drive the car', async 
   assert.ok(Number.isFinite(s.pilotSteer) && Math.abs(s.pilotSteer) <= 1, `pilot steer out of range: ${s.pilotSteer}`);
   assert.ok(s.pilotThrottle >= 0 && s.pilotThrottle <= 1, `pilot throttle out of range: ${s.pilotThrottle}`);
 
-  // Poll rather than snapshot: the biased model can drive off-track, and
-  // the automatic crash reset momentarily zeroes input.throttle before
-  // the next prediction reapplies it -- a legitimate blip, not a gate
-  // failure.
+  // Poll rather than snapshot, and compare with tolerance rather than
+  // equality: the loop applies pilot->input at frame START and predicts at
+  // frame END, so from outside the loop input always holds the PREVIOUS
+  // prediction. Consecutive predictions on near-identical frames are
+  // close, so a small tolerance proves the override without racing it.
+  // (Crash resets also blip input.throttle to 0 for a frame.)
   await waitFor(page, () => {
     const { input, pilot } = window.__sim;
-    return input.steer === pilot.steer && input.throttle === pilot.throttle && pilot.throttle > 0;
+    return Math.abs(input.steer - pilot.steer) < 0.1 &&
+           Math.abs(input.throttle - pilot.throttle) < 0.1 &&
+           input.throttle > 0;
   }, { timeout: 30000, message: 'model outputs were never applied to the car' });
 });
 
 test('mouse input cannot steal steering while autopilot is on', async () => {
   await page.mouse.move(100, 400); // hard left, far from screen center
   // The mousemove handler writes input.steer immediately; the next frame's
-  // pre-physics override must claw it back to the model's value.
-  await waitFor(page, () => window.__sim.input.steer === window.__sim.pilot.steer, {
+  // pre-physics override must claw it back to the model's value. Tolerance
+  // rather than equality for the same one-prediction lag as above -- a
+  // random-init model predicts near 0, nowhere near the mouse's hard left.
+  await waitFor(page, () => {
+    const { input, pilot } = window.__sim;
+    return Math.abs(input.steer - pilot.steer) < 0.1;
+  }, {
     timeout: 10000,
     message: 'input.steer never returned to the model value after a mousemove',
   });
