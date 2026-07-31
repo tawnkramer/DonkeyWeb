@@ -5,7 +5,7 @@ import './scenery.js';
 import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
 import { input, onReset } from './input.js';
 import { tub, tubPush } from '../data/tub.js';
-import { drawHud, setFps } from './hud.js';
+import { drawHud, setFps, drawDataset } from './hud.js';
 
 onReset(resetCar);
 
@@ -95,13 +95,15 @@ function frame(now) {
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
   // as physics -- only while driving forward and on the track
+  const isRecording = input.throttle > 0 && !offTrack;
   recAcc += dt;
   if (recAcc >= REC_DT) {
     recAcc -= REC_DT;
-    if (input.throttle > 0 && !offTrack) tubPush(simTime, input.steer, input.throttle);
+    if (isRecording) tubPush(simTime, input.steer, input.throttle);
   }
 
   drawHud();
+  drawDataset(isRecording);
   setFps(fpsA);
 }
 

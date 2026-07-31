@@ -39,9 +39,26 @@
   #pov{width:240px;height:180px;display:block;image-rendering:pixelated;border-radius:3px;background:#000}
   #povlabel{display:flex;justify-content:space-between;gap:12px;font-size:9.5px;color:var(--dim);
     letter-spacing:.12em;text-transform:uppercase;padding:5px 2px 1px}
-  #povlabel .rec{color:var(--cone)}
-  #povlabel .rec::before{content:'●';margin-right:5px;animation:blink 1.6s steps(1) infinite}
+  #povlabel .rec::before{content:'●';margin-right:5px}
+  #povlabel .rec.active{color:var(--cone)}
+  #povlabel .rec.active::before{animation:blink 1.6s steps(1) infinite}
   @keyframes blink{50%{opacity:.25}}
+
+  /* dataset quality: frame count + live steering histogram, so "all
+     straight" data visibly piles up in the middle instead of being an
+     invisible problem you only discover after training */
+  #dataset{
+    top:222px;right:16px;width:240px;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
+    padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
+  }
+  #dataset .d-head{display:flex;justify-content:space-between;align-items:baseline}
+  #dataset .t-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  #dataset .t-value{font-family:'Chakra Petch';font-weight:600;font-size:15px;font-variant-numeric:tabular-nums}
+  #dataset .t-value small{font-size:9px;color:var(--dim);font-weight:500;margin-left:2px}
+  #dHist{position:relative;height:32px;display:flex;align-items:flex-end;gap:2px;margin-top:6px}
+  #dHist .bar{flex:1;background:var(--dim);border-radius:1px 1px 0 0;min-height:2px;transition:height .2s}
+  #dHist .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
 
   /* telemetry strip */
   #telem{
@@ -87,11 +104,12 @@
 
   @media (max-width:760px){
     #pov{width:160px;height:120px}
+    #dataset{top:176px;width:160px}
     #telem{gap:14px;padding:8px 12px}
     .t-item{min-width:52px}
     #steerbar{width:100px}.bar{width:80px}
   }
-  @media (prefers-reduced-motion:reduce){ #povlabel .rec::before{animation:none} }
+  @media (prefers-reduced-motion:reduce){ #povlabel .rec.active::before{animation:none} }
 </style>
 </head>
 <body>
@@ -105,8 +123,16 @@
 <div class="hud" id="povwrap">
   <div id="povframe">
     <canvas id="pov" width="160" height="120"></canvas>
-    <div id="povlabel"><span class="rec">cam</span><span>160×120 · model input</span></div>
+    <div id="povlabel"><span class="rec" id="recDot">cam</span><span>160×120 · model input</span></div>
   </div>
+</div>
+
+<div class="hud" id="dataset">
+  <div class="d-head">
+    <span class="t-label">Dataset</span>
+    <span class="t-value" id="dFrames">0<small>frames</small></span>
+  </div>
+  <div id="dHist"><div class="mid"></div></div>
 </div>
 
 <div class="hud" id="hint">
