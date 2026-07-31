@@ -215,6 +215,12 @@ for (let i = 0; i < SAMPLES; i++) {
 }
 const normalAt = i => new THREE.Vector3(-tangents[i].z, 0, tangents[i].x);
 
+// Start/finish sits on the straightest run on the loop (~12m of gentle
+// curvature around sample 420, near [-22,67]) rather than at the spline's
+// t=0 control point -- which is the eased corner from the hairpin fix and
+// isn't where a start/finish line normally goes.
+const START_IDX = 420;
+
 // Per-sample width taper: at tight corners the curvature radius can be
 // smaller than the road half-width, which would make the offset ribbon
 // edges fold back across themselves (self-intersecting geometry). Scale
@@ -296,7 +302,7 @@ scene.add(ribbon(-TRACK_W/2-0.05, -TRACK_W/2+0.28, 0.045, 0xf3efe8));
   const cellCount = Math.ceil(CELLS_X * CELLS_Y / 2) + 1;
   const light = new THREE.InstancedMesh(cellGeo, matLight, cellCount);
   const dark  = new THREE.InstancedMesh(cellGeo, matDark, cellCount);
-  const c0 = centers[0], t0 = tangents[0];
+  const c0 = centers[START_IDX], t0 = tangents[START_IDX];
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), t0)
               .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2));
   const M = new THREE.Matrix4();
@@ -409,11 +415,11 @@ function resetCar() {
   V.speed = 0; V.steer = 0;
   nearestIdx = best;
 }
-V.x = centers[0].x; V.z = centers[0].z;
-V.heading = Math.atan2(tangents[0].x, tangents[0].z);
+V.x = centers[START_IDX].x; V.z = centers[START_IDX].z;
+V.heading = Math.atan2(tangents[START_IDX].x, tangents[START_IDX].z);
 
 // nearest-center tracking (local search around last index)
-let nearestIdx = 0;
+let nearestIdx = START_IDX;
 function updateNearest() {
   let best = nearestIdx, bd = Infinity;
   for (let o = -30; o <= 30; o++) {
