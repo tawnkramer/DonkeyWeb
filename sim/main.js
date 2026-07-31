@@ -52,7 +52,16 @@ window.__sim = {
 // between the previous and current physics tick by how far into the next
 // tick this render falls, which removes the judder without changing the
 // physics itself.
-function placeCameras(rx, rz, rHeading) {
+
+// Exponential decay rate for the chase cam's follow, in 1/s -- framerate-
+// independent (unlike a flat per-frame lerp factor, which implicitly
+// assumes a fixed tick rate) and tuned a bit gentler than before: autopilot's
+// predictions land at a fixed 20 Hz and get held between renders (a mild
+// staircase versus a mouse's continuous motion), which read as noticeable
+// jitter in the follow cam at the old, snappier damping.
+const CHASE_FOLLOW_RATE = 3.5;
+
+function placeCameras(rx, rz, rHeading, dt) {
   car.position.set(rx, 0, rz);
   car.rotation.y = rHeading;
 
@@ -60,7 +69,8 @@ function placeCameras(rx, rz, rHeading) {
   const back = 6.4, up = 3.0;
   const tx = rx - Math.sin(rHeading)*back;
   const tz = rz - Math.cos(rHeading)*back;
-  chaseCam.position.lerp(new THREE.Vector3(tx, up, tz), 0.08);
+  const followT = 1 - Math.exp(-CHASE_FOLLOW_RATE * dt);
+  chaseCam.position.lerp(new THREE.Vector3(tx, up, tz), followT);
   chaseCam.lookAt(rx, 0.8, rz);
 
   // POV cam: on the mast, pitched slightly down (donkey-style)
@@ -117,7 +127,8 @@ function frame(now) {
   const rAlpha = acc / DT;
   placeCameras(prevX + (V.x - prevX) * rAlpha,
                prevZ + (V.z - prevZ) * rAlpha,
-               prevHeading + (V.heading - prevHeading) * rAlpha);
+               prevHeading + (V.heading - prevHeading) * rAlpha,
+               dt);
 
   // Stationary means the car's own state stopped changing this tick;
   // autopilot always counts as active regardless of its current speed,
