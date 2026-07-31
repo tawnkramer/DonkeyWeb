@@ -49,6 +49,20 @@ Then open the URL it prints (`http://localhost:8734` by default; set
 `PORT=xxxx` to use a different one). That's it -- just [Node.js](https://nodejs.org/)
 itself is required, nothing else.
 
+### Hosting it on GitHub Pages
+
+Since there's no build step, GitHub can serve this repo as-is:
+
+1. Push the repo to GitHub.
+2. In **Settings -> Pages**, set Source to "Deploy from a branch", branch
+   `main`, folder `/ (root)`.
+3. GitHub publishes it at `https://<you>.github.io/<repo>/`.
+
+The repo already has a `.nojekyll` file (so GitHub doesn't run its default
+Jekyll processing over the app's files) and every path in the app is
+relative to `index.html`, so it works both at a domain root and at a
+project-page subpath like the one above.
+
 ## Controls
 
 | Input | Effect |
