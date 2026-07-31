@@ -7,6 +7,7 @@ import { pilot } from '../train/autopilot.js';
 
 // ---------- car ----------
 export const car = new THREE.Group();
+const frontWheels = [];
 {
   const bodyM = new THREE.MeshLambertMaterial({color:0x3b6fd4});
   const darkM = new THREE.MeshLambertMaterial({color:0x20242e});
@@ -22,8 +23,21 @@ export const car = new THREE.Group();
   camBox.position.set(0, 1.04, 0.3);
   const wheelG = new THREE.CylinderGeometry(0.19, 0.19, 0.16, 12);
   wheelG.rotateZ(Math.PI/2);
-  const wpos = [[-0.46,0.19,0.55],[0.46,0.19,0.55],[-0.46,0.19,-0.62],[0.46,0.19,-0.62]];
-  for (const [x,y,z] of wpos) {
+  // Front wheels (+z, same side as the mast/camera) get their own group so
+  // they can yaw with V.steer independent of their own roll axis; rear
+  // wheels don't steer, so they stay plain meshes parented to the car.
+  const frontPos = [[-0.46,0.19,0.55],[0.46,0.19,0.55]];
+  const rearPos = [[-0.46,0.19,-0.62],[0.46,0.19,-0.62]];
+  for (const [x,y,z] of frontPos) {
+    const w = new THREE.Mesh(wheelG, darkM);
+    w.castShadow = true;
+    const group = new THREE.Group();
+    group.position.set(x,y,z);
+    group.add(w);
+    car.add(group);
+    frontWheels.push(group);
+  }
+  for (const [x,y,z] of rearPos) {
     const w = new THREE.Mesh(wheelG, darkM);
     w.position.set(x,y,z); w.castShadow = true;
     car.add(w);
@@ -87,6 +101,7 @@ export function step(dt) {
   const dS = target - V.steer;
   const maxD = V.STEER_RATE * dt;
   V.steer += Math.max(-maxD, Math.min(maxD, dS));
+  for (const w of frontWheels) w.rotation.y = V.steer;
 
   // longitudinal
   let a = 0;
