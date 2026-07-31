@@ -36,9 +36,9 @@ export async function launchBrowser() {
 
 // Polls `fn` (evaluated in the page) until it returns a truthy value,
 // instead of sleeping a fixed, guessed duration. Prefer this everywhere:
-// cold IndexedDB opens and the CDN-hosted three.js import have both shown
-// multi-second, environment-dependent latency in this sandboxed headless
-// setup (fast on real hardware, slow here), so a hardcoded delay is either
+// cold IndexedDB opens, module-graph loads, and software-GL rendering have
+// all shown multi-second, environment-dependent latency in this sandboxed
+// headless setup (fast on real hardware, slow here), so a hardcoded delay is either
 // flaky (too short) or wastes time in every run (padded long "to be safe").
 // extraArgs are forwarded to page.evaluate(fn, ...extraArgs), same as
 // Puppeteer's own evaluate -- use this to pass in values captured in the

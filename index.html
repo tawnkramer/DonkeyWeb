@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>donkey.web — M0 feel prototype</title>
+<title>donkey.web — M1 record &amp; train</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -60,6 +60,27 @@
   #dHist .bar{flex:1;background:var(--dim);border-radius:1px 1px 0 0;min-height:2px;transition:height .2s}
   #dHist .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
 
+  /* train panel: one button + live loss chart (train per batch, val per epoch) */
+  #train{
+    top:304px;right:16px;width:240px;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
+    padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
+  }
+  #train .d-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .t-status{
+    font-size:9.5px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;
+    max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  #lossChart{display:block;width:100%;height:56px;margin-top:6px;background:rgba(0,0,0,.25);border-radius:3px}
+  #trainBtn{
+    width:100%;margin-top:8px;padding:7px 0;border-radius:6px;
+    border:1px solid var(--cone);background:var(--cone);color:#1b1408;
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  #trainBtn.running{background:transparent;color:var(--cone)}
+  #trainBtn:disabled{opacity:.55;cursor:default}
+
   /* telemetry strip */
   #telem{
     left:50%;bottom:16px;transform:translateX(-50%);
@@ -105,6 +126,7 @@
   @media (max-width:760px){
     #pov{width:160px;height:120px}
     #dataset{top:176px;width:160px}
+    #train{top:250px;width:160px}
     #telem{gap:14px;padding:8px 12px}
     .t-item{min-width:52px}
     #steerbar{width:100px}.bar{width:80px}
@@ -117,7 +139,7 @@
 
 <div class="hud" id="brand">
   <div class="word">donkey<b>.</b>web</div>
-  <div class="sub">M0 · feel prototype</div>
+  <div class="sub">M1 · record &amp; train</div>
 </div>
 
 <div class="hud" id="povwrap">
@@ -133,6 +155,15 @@
     <span class="t-value" id="dFrames">0<small>frames</small></span>
   </div>
   <div id="dHist"><div class="mid"></div></div>
+</div>
+
+<div class="hud" id="train">
+  <div class="d-head">
+    <span class="t-label">Train</span>
+    <span class="t-status" id="trainStatus">idle</span>
+  </div>
+  <canvas id="lossChart" width="220" height="56"></canvas>
+  <button id="trainBtn">train model</button>
 </div>
 
 <div class="hud" id="hint">
@@ -163,7 +194,7 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js"
+    "three": "/vendor/three.module.js"
   }
 }
 </script>

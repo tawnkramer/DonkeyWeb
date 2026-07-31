@@ -6,9 +6,14 @@
   "type": "module",
   "scripts": {
     "serve": "node test/serve.js",
-    "test": "bash scripts/test.sh"
+    "test": "bash scripts/test.sh",
+    "vendor": "bash scripts/vendor.sh"
   },
   "devDependencies": {
-    "puppeteer-core": "^25.4.0"
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-webgpu": "^4.22.0",
+    "esbuild": "^0.28.1",
+    "puppeteer-core": "^25.4.0",
+    "three": "^0.128.0"
   }
 }

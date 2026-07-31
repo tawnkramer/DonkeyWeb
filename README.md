@@ -2,6 +2,15 @@
 
 Browser-first donkeycar: drive, train, autopilot.
 
+## Setup
+
+The app serves fully self-hosted (no runtime CDN): three.js and TensorFlow.js
+are vendored into `/vendor`. After `npm install`, regenerate them with:
+
+```bash
+npm run vendor
+```
+
 ## Test
 
 Run the browser test suite with:

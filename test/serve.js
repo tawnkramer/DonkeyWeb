@@ -7,6 +7,7 @@ const ROOT = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 const MIME = {
   '.html': 'text/html',
   '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
   '.json': 'application/json',
   '.png': 'image/png',
   '.md': 'text/markdown',

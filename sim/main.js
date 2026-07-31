@@ -6,6 +6,8 @@ import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
 import { input, onReset } from './input.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps, drawDataset } from './hud.js';
+import { training, trainStart, trainStop } from '../train/trainer.js';
+import './trainui.js';
 
 onReset(resetCar);
 
@@ -21,7 +23,7 @@ loadTub();
 // plain values, so offTrack/simTime/cte reflect the current tick rather
 // than whatever they were when this object was built.
 window.__sim = {
-  input, V, tub, scene,
+  input, V, tub, scene, training, trainStart, trainStop,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
