@@ -57,7 +57,8 @@ document.querySelectorAll('.pbtn').forEach(b => {
 const STEER_SENSITIVITY_PX = 260; // mouse distance from center for full lock
 addEventListener('mousemove', e => {
   const off = (e.clientX - innerWidth/2) / STEER_SENSITIVITY_PX;
-  input.steer = Math.max(-1, Math.min(1, -off));
+  const steer = Math.max(-1, Math.min(1, -off));
+  input.steer = steer === 0 ? 0 : steer;
 });
 const WHEEL_SENSITIVITY = 0.0008; // throttle change per unit of wheel deltaY
 addEventListener('wheel', e => {

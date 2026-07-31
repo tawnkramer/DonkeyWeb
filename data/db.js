@@ -39,6 +39,16 @@ export async function dbDelete(id) {
   });
 }
 
+export async function dbClear() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function dbGetAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {

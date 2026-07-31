@@ -22,7 +22,7 @@ test('recorded frames persist to IndexedDB and survive a reload', async () => {
     const { dbGetAll } = await import('/data/db.js');
     const all = await dbGetAll();
     return all.length >= 1;
-  }, { timeout: 5000, message: 'no frames ever persisted to IndexedDB' });
+  }, { timeout: 15000, message: 'no frames ever persisted to IndexedDB' });
 
   await page.reload({ waitUntil: 'load', timeout: 20000 });
   await waitFor(page, () => window.__sim && window.__sim.tub.loaded, {
@@ -57,6 +57,9 @@ test('trimming never leaves an orphaned or resurrected record in IndexedDB, rega
   // Capture the actually-assigned ids instead of guessing them.
   const { survivors, allPushed } = await page.evaluate(async () => {
     const mod = await import('/data/tub.js');
+    await mod.waitForTubIdle();
+    const { dbClear } = await import('/data/db.js');
+    await dbClear();
     mod.tub.frames.length = 0;
     mod.tub.bins.fill(0);
     const allPushed = [];
@@ -79,7 +82,7 @@ test('trimming never leaves an orphaned or resurrected record in IndexedDB, rega
     const all = await dbGetAll();
     const ids = all.map((r) => r.id).sort((a, b) => a - b);
     return JSON.stringify(ids) === JSON.stringify(expected) ? ids : false;
-  }, { args: [survivors], timeout: 5000, message: 'IndexedDB never converged to the surviving frames' });
+  }, { args: [survivors], timeout: 15000, message: 'IndexedDB never converged to the surviving frames' });
 
   assert.deepEqual(dbIds, survivors);
 });

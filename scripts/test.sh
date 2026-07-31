@@ -10,4 +10,7 @@ if (( ${#tests[@]} == 0 )); then
   exit 1
 fi
 
-node --test "${tests[@]}"
+for test_file in "${tests[@]}"; do
+  echo "==> $test_file"
+  node --test "$test_file"
+done

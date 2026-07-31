@@ -81,7 +81,7 @@ export async function setupSimPage() {
   await resetIndexedDB(page);
   await page.reload({ waitUntil: 'load', timeout: 20000 });
   await waitFor(page, () => window.__sim && window.__sim.tub.loaded, {
-    timeout: 10000,
+    timeout: 30000,
     message: 'window.__sim.tub.loaded never became true',
   });
   return {

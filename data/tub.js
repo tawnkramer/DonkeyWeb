@@ -28,6 +28,7 @@ function binIndex(steer) {
 export const tub = { frames: [], bins: new Array(BINS).fill(0), loaded: false };
 
 let nextId = 0;
+const pendingWork = new Set();
 
 export function tubPush(t, steer, throttle) {
   // Guards against an id collision with frames loadTub() hasn't restored
@@ -37,15 +38,33 @@ export function tubPush(t, steer, throttle) {
   if (!tub.loaded) return;
 
   const id = nextId++;
-  const frame = { id, t, steer, throttle };
+  let settlePersist = null;
+  const persistDone = new Promise(resolve => { settlePersist = resolve; });
+  const frame = { id, t, steer, throttle, persistDone };
   tub.frames.push(frame);
   tub.bins[binIndex(steer)]++;
 
+  let settleEncode = null;
+  const encodeDone = new Promise(resolve => { settleEncode = resolve; });
+  pendingWork.add(encodeDone);
+
   povCanvas.toBlob(blob => {
+    pendingWork.delete(encodeDone);
+    settleEncode();
+
     // If this frame got trimmed (off-track) before its JPEG finished
     // encoding, don't let the DB write resurrect it after the fact.
-    if (frame.trimmed) return;
-    dbPut({ id, t, steer, throttle, img: blob }).catch(err => console.warn('tub: failed to persist frame', err));
+    if (frame.trimmed) {
+      settlePersist();
+      return;
+    }
+    const persist = dbPut({ id, t, steer, throttle, img: blob })
+      .catch(err => console.warn('tub: failed to persist frame', err))
+      .finally(() => {
+        pendingWork.delete(persist);
+        settlePersist();
+      });
+    pendingWork.add(persist);
   }, 'image/jpeg', 0.7);
 }
 
@@ -55,7 +74,9 @@ export function tubTrimLastSeconds(seconds, simTime) {
     const removed = tub.frames.pop();
     removed.trimmed = true;
     tub.bins[binIndex(removed.steer)]--;
-    dbDelete(removed.id).catch(err => console.warn('tub: failed to delete frame', err));
+    removed.persistDone.then(() => {
+      dbDelete(removed.id).catch(err => console.warn('tub: failed to delete frame', err));
+    });
   }
 }
 
@@ -78,4 +99,13 @@ export async function loadTub() {
     if (r.id >= nextId) nextId = r.id + 1;
   }
   tub.loaded = true;
+}
+
+// Lets tests wait until all in-flight JPEG/blob writes have either landed
+// in IndexedDB or been trimmed away. This makes persistence assertions
+// deterministic when several tests share the same browser page state.
+export async function waitForTubIdle() {
+  while (pendingWork.size) {
+    await Promise.allSettled([...pendingWork]);
+  }
 }
