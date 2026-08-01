@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H } from './scene.js';
+import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H,
+         isGLAvailable } from './scene.js';
 import './track.js';
 import './scenery.js';
 import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
@@ -162,7 +163,11 @@ function frame(now) {
   const mode = getMode();
   const isDrivingScreen = mode === 'drive' || mode === 'eval';
 
-  if (isDrivingScreen && !idle) {
+  // isGLAvailable: a context the browser takes away (backgrounding on iOS
+  // is enough) comes back asynchronously, so frames can land while it is
+  // still gone. three.js's render() sits those out on its own, but
+  // readRenderTargetPixels below does not.
+  if (isDrivingScreen && !idle && isGLAvailable()) {
     // main view
     renderer.setRenderTarget(null);
     renderer.render(scene, chaseCam);

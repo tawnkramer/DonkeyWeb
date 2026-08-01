@@ -1,4 +1,5 @@
 import { training, trainStart, trainStop, onTraining } from '../train/trainer.js';
+import { PROFILES } from '../train/model.js';
 import { dismissHint } from './input.js';
 
 // ---------- train panel ----------
@@ -8,17 +9,57 @@ import { dismissHint } from './input.js';
 // same pedagogy-by-UI as the steering histogram above it.
 const btn = document.getElementById('trainBtn');
 const status = document.getElementById('trainStatus');
+const progress = document.getElementById('trainProgress');
 const chart = document.getElementById('lossChart');
 const ctx = chart.getContext('2d');
+
+// A phone run is slow enough that a batch every 20s is normal, so silence
+// only becomes suspicious well past that.
+const STALL_S = 45;
+
+// iOS suspends a hidden page's timers AND its workers: switching apps or
+// letting the screen lock stops training dead until you come back, with no
+// event to say so. Worth naming, because the symptom -- a run that made no
+// progress while you were away -- otherwise looks like a bug.
+let hiddenWhileBusy = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (training.state === 'running' || training.state === 'loading') hiddenWhileBusy = true;
+  } else {
+    render();
+  }
+});
 
 const CONE = '#ff6a2b';
 const LIGHT = 'rgba(243,239,232,.5)';
 
+// Phones get the small model and small batches by default. Both limits are
+// about the same wall: a batch of 64 at 120x160 puts tens of MB of
+// activations on the GPU at once, and a mobile GPU answers that by dropping
+// the context or having the OS kill the worker -- training that goes quiet
+// rather than failing. Desktop keeps the donkeycar-parity model.
+const isPhone = matchMedia('(pointer:coarse)').matches;
+const profileSelect = document.getElementById('trainProfile');
+for (const [name, p] of Object.entries(PROFILES)) {
+  profileSelect.add(new Option(p.label, name));
+}
+profileSelect.value = isPhone ? 'tiny' : 'linear';
+
 btn.addEventListener('click', () => {
   dismissHint();
   if (training.state === 'running') trainStop();
-  else trainStart();
+  else {
+    hiddenWhileBusy = false;
+    trainStart({ profile: profileSelect.value, batchSize: isPhone ? 16 : 64 });
+  }
 });
+
+function fmtDuration(s) {
+  if (!Number.isFinite(s) || s <= 0) return '';
+  const m = Math.floor(s / 60);
+  const r = Math.round(s % 60);
+  return m ? `${m}m${String(r).padStart(2, '0')}s` : `${r}s`;
+}
 
 function statusText() {
   switch (training.state) {
@@ -26,7 +67,11 @@ function statusText() {
     case 'loading': return training.detail || 'loading';
     case 'running': {
       const cur = Math.min(training.epoch + 1, training.epochsTotal);
-      return `${training.backend} · epoch ${cur}/${training.epochsTotal}`;
+      // The backend is the single most useful word here: 'cpu' means tfjs
+      // found no usable GPU path and the run will be ~100x slower, which is
+      // most of the "why is this taking so long" cases on a phone.
+      const backend = training.backend === 'cpu' ? 'cpu (no gpu)' : training.backend;
+      return `${backend} · epoch ${cur}/${training.epochsTotal}`;
     }
     case 'done': {
       const last = training.epochLog[training.epochLog.length - 1];
@@ -37,14 +82,52 @@ function statusText() {
   }
 }
 
+// The "is it actually moving?" line. A loss chart that gains a pixel a
+// minute cannot answer that, and neither can an epoch counter that only
+// ticks once every few minutes.
+function progressText() {
+  const busy = training.state === 'loading' || training.state === 'running';
+  if (!busy) return { text: '', warn: false };
+
+  if (training.quietFor >= STALL_S) {
+    const secs = Math.round(training.quietFor);
+    return {
+      warn: true,
+      text: hiddenWhileBusy
+        ? `no progress for ${fmtDuration(secs)} — this device pauses training whenever the tab is hidden or the screen is off; keep this page open and awake`
+        : `no progress for ${fmtDuration(secs)} — the training worker has gone quiet (out of memory, or the browser suspended it)`,
+    };
+  }
+
+  if (training.state === 'loading') return { text: training.detail || 'starting', warn: false };
+
+  const done = training.batchLosses.length;
+  if (!done && training.phase) return { text: training.phase, warn: false };
+
+  const parts = [];
+  if (training.batchesTotal) parts.push(`batch ${done}/${training.batchesTotal}`);
+  if (training.batchesPerSec > 0) {
+    parts.push(training.batchesPerSec >= 1
+      ? `${training.batchesPerSec.toFixed(1)} batch/s`
+      : `${(1 / training.batchesPerSec).toFixed(1)}s per batch`);
+    const left = (training.batchesTotal - done) / training.batchesPerSec;
+    if (training.batchesTotal > done) parts.push(`~${fmtDuration(left)} left`);
+  }
+  return { text: parts.join(' · '), warn: false };
+}
+
 function render() {
   status.textContent = statusText();
   status.title = training.state === 'error' ? (training.error || '') : '';
+  const p = progressText();
+  progress.textContent = p.text;
+  progress.classList.toggle('warn', p.warn);
   const busy = training.state === 'loading' || training.state === 'running';
   btn.textContent = training.state === 'running' ? 'stop'
     : training.state === 'done' ? 'retrain'
     : 'train model';
   btn.disabled = training.state === 'loading';
+  profileSelect.disabled = busy;
   btn.classList.toggle('running', busy);
   drawChart();
 }

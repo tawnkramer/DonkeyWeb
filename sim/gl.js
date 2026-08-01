@@ -49,6 +49,8 @@ function replaceCanvas(el) {
   return fresh;
 }
 
+let active = null;      // { renderer, canvas } once one is running
+
 export function createRenderer(canvasEl) {
   const failures = [];
   let el = canvasEl;
@@ -77,6 +79,7 @@ export function createRenderer(canvasEl) {
       // cached object anyway, but this way nothing unvalidated ever reaches it.
       const renderer = new THREE.WebGLRenderer({ canvas: el, context: gl, ...attrs });
       watchForContextLoss(el);
+      active = { renderer, canvas: el };
       return { renderer, canvas: el, profile: label };
     }
 
@@ -93,26 +96,45 @@ export function createRenderer(canvasEl) {
   );
 }
 
-// The context can also die AFTER startup -- backgrounding the tab on iOS is
-// enough. three.js already stops rendering and rebuilds its GPU resources on
-// restore, so nothing here touches the sim; this only explains the freeze,
-// since a silently frozen 3D view reads as a crash.
+// three.js renders nothing while the context is lost, but
+// readRenderTargetPixels has no such guard -- the render loop asks this
+// before touching the POV buffer. (Nothing here gives the context up on
+// purpose any more: a phone-sized model trains alongside the live sim
+// context just fine, and a deliberate release turned out to be a one-way
+// trip on Safari -- restoreContext() is not reliably honoured.)
+export function isGLAvailable() {
+  if (!active) return false;
+  const gl = active.renderer.getContext();
+  return !!gl && !gl.isContextLost();
+}
+
+let banner = null;
+
+function showBanner(text) {
+  if (banner) { banner.textContent = text; return; }
+  banner = document.createElement('div');
+  banner.id = 'glLostBanner';
+  banner.textContent = text;
+  Object.assign(banner.style, {
+    position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
+    zIndex: '9998', background: 'rgba(24,27,36,.92)', border: '1px solid rgba(255,255,255,.14)',
+    borderRadius: '8px', padding: '12px 18px', font: "13px 'IBM Plex Mono',monospace",
+    color: '#f3efe8', textAlign: 'center', maxWidth: '80vw',
+  });
+  document.body.appendChild(banner);
+}
+
+function hideBanner() {
+  if (banner) { banner.remove(); banner = null; }
+}
+
+// The context can also die AFTER startup for reasons nobody asked for --
+// backgrounding the tab on iOS is enough. three.js already stops rendering
+// and rebuilds its GPU resources on restore, so nothing here touches the
+// sim; this only explains the freeze, since a silently frozen 3D view reads
+// as a crash. A release we asked for stays silent.
 function watchForContextLoss(el) {
-  let banner = null;
-  el.addEventListener('webglcontextlost', () => {
-    if (banner) return;
-    banner = document.createElement('div');
-    banner.id = 'glLostBanner';
-    banner.textContent = '3D context lost — waiting for the browser to restore it…';
-    Object.assign(banner.style, {
-      position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
-      zIndex: '9998', background: 'rgba(24,27,36,.92)', border: '1px solid rgba(255,255,255,.14)',
-      borderRadius: '8px', padding: '12px 18px', font: "13px 'IBM Plex Mono',monospace",
-      color: '#f3efe8', textAlign: 'center',
-    });
-    document.body.appendChild(banner);
-  });
-  el.addEventListener('webglcontextrestored', () => {
-    if (banner) { banner.remove(); banner = null; }
-  });
+  el.addEventListener('webglcontextlost',
+    () => showBanner('3D context lost — waiting for the browser to restore it…'));
+  el.addEventListener('webglcontextrestored', hideBanner);
 }

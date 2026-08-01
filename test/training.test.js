@@ -86,6 +86,43 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   assert.ok(saved.weightBytes > 100000, `saved weights suspiciously small: ${saved.weightBytes} bytes`);
 });
 
+// The phone profile. It exists to fit in a mobile GPU's memory, so what
+// matters is that the whole loop still closes at a different input size:
+// train at 64x64, load, and predict from the 160x120 POV feed.
+test('the tiny profile trains and then drives at its own input size', async () => {
+  await page.evaluate(() => __sim.trainStart({ epochs: 1, batchSize: 8, profile: 'tiny' }));
+  await waitFor(page, () => {
+    const t = window.__sim.training;
+    if (t.state === 'error') throw new Error(t.error);
+    return t.state === 'done';
+  }, { timeout: 240000, interval: 500, message: 'tiny-profile training never reached done' });
+
+  const ready = await page.evaluate(() => __sim.loadPilotModel());
+  assert.equal(ready, true, 'the tiny model should load for inference');
+
+  const shape = await page.evaluate(async () => {
+    const tf = await import('/vendor/tf.mjs');
+    const m = await tf.loadLayersModel('indexeddb://donkeyweb-model');
+    return m.inputs[0].shape;
+  });
+  assert.deepEqual(shape, [null, 64, 64, 3]);
+
+  // The POV feed is still 160x120: predicting from it proves the resize
+  // path, not just that a model loaded.
+  const predicted = await page.evaluate(async () => {
+    // Same module instance the sim uses -- a dynamic import of an
+    // already-loaded URL returns the live singleton, not a second copy.
+    const { pilotPredict, pilot } = await import('/train/autopilot.js');
+    const before = pilot.predCount;
+    const pov = document.getElementById('pov');
+    const img = pov.getContext('2d').getImageData(0, 0, pov.width, pov.height);
+    pilotPredict(img);
+    return { advanced: pilot.predCount > before, steer: pilot.steer };
+  });
+  assert.ok(predicted.advanced, 'pilotPredict did not run');
+  assert.ok(Number.isFinite(predicted.steer), `steer was ${predicted.steer}`);
+});
+
 test('stop ends a long training early and still saves', async () => {
   await page.evaluate(() => __sim.trainStart({ epochs: 50, batchSize: 16 }));
 
@@ -96,6 +133,17 @@ test('stop ends a long training early and still saves', async () => {
     if (t.state === 'error') throw new Error(t.error);
     return t.batchLosses.length >= 3;
   }, { timeout: 240000, interval: 200, message: 'training never produced 3 batches' });
+
+  // Mid-run progress readout. This is what tells you a slow device is
+  // working rather than wedged, so it has to appear DURING the run -- an
+  // assertion after 'done' would prove nothing.
+  const line = await waitFor(page, () => {
+    const el = document.getElementById('trainProgress');
+    return el && /batch \d+\/\d+/.test(el.textContent) ? el.textContent : null;
+  }, { timeout: 60000, message: '#trainProgress never showed a batch count while running' });
+  const { nTrain, batchesTotal } = await page.evaluate(() => __sim.training);
+  assert.equal(batchesTotal, Math.ceil(nTrain / 16) * 50);
+  assert.match(line, new RegExp(`batch \\d+/${batchesTotal}`));
 
   await page.evaluate(() => __sim.trainStop());
   await waitFor(page, () => {

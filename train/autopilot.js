@@ -18,6 +18,7 @@ export const pilot = {
 
 let tf = null;
 let model = null;
+let inputH = 0, inputW = 0;   // read off the loaded model, see loadPilotModel
 
 export async function loadPilotModel() {
   if (pilot.loading) return pilot.ready;
@@ -28,9 +29,15 @@ export async function loadPilotModel() {
       await tf.ready();
     }
     const next = await tf.loadLayersModel('indexeddb://donkeyweb-model');
+    // The model states its own input size (the tiny profile trains at
+    // 64x64, the donkeycar clone at 120x160), so inference reads it off the
+    // loaded model rather than assuming the POV canvas's size. A model
+    // trained at one size then drives correctly with no other coordination.
+    const [, h, w] = next.inputs[0].shape;
+    inputH = h; inputW = w;
     // Warm up now so the first shader compile doesn't hitch the sim the
     // moment autopilot is toggled on.
-    tf.tidy(() => next.predict(tf.zeros([1, 120, 160, 3])));
+    tf.tidy(() => next.predict(tf.zeros([1, inputH, inputW, 3])));
     if (model) model.dispose();
     model = next;
     pilot.ready = true;
@@ -64,7 +71,13 @@ export function setPilotActive(on) {
 export function pilotPredict(imageData) {
   if (!pilot.ready) return;
   const [steer, throttle] = tf.tidy(() => {
-    const x = tf.browser.fromPixels(imageData, 3).div(255).expandDims(0);
+    let x = tf.browser.fromPixels(imageData, 3).div(255).expandDims(0);
+    // Downscale to whatever the model was trained at. Bilinear on the GPU
+    // in the same tidy as the forward pass, so a 64x64 model costs one
+    // extra op rather than a canvas round trip in the 20 Hz control loop.
+    if (imageData.height !== inputH || imageData.width !== inputW) {
+      x = tf.image.resizeBilinear(x, [inputH, inputW]);
+    }
     const [s, t] = model.predict(x);
     return [s.dataSync()[0], t.dataSync()[0]];
   });

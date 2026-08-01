@@ -4,13 +4,19 @@
 // to ship megabytes of JPEG blobs through postMessage.
 import * as tf from '../vendor/tf.mjs';
 import { dbGetAll } from '../data/db.js';
-import { buildModel } from './model.js';
+import { buildModel, PROFILES, DEFAULT_PROFILE } from './model.js';
 
 const MODEL_URL = 'indexeddb://donkeyweb-model';
-const W = 160, H = 120, C = 3;
+const C = 3;
 // Below ~50 frames (2.5s of driving) even a smoke-test train is
 // meaningless; refuse with a message the UI can show verbatim.
 const MIN_FRAMES = 50;
+// The cpu backend runs one batch as a single uninterruptible chunk of JS,
+// and this net costs roughly 9 GMACs per batch of 64 -- minutes of dead
+// silence on a phone, which is indistinguishable from a crash. A smaller
+// batch does the same total work but reports in four times as often, so
+// "slow" at least looks different from "dead".
+const CPU_BATCH = 16;
 
 let running = false;
 let stopRequested = false;
@@ -48,34 +54,6 @@ async function chooseBackend() {
   await tf.ready();
 }
 
-// Decode every stored JPEG once into a single uint8 [n,H,W,C] buffer
-// (~5-8 KB/frame on disk becomes 57.6 KB/frame raw: 5k frames ~ 288 MB,
-// acceptable; the same data as float32 would be 1.15 GB, which is not --
-// so batches are converted to float on the backend per-step instead).
-async function decodeAll(records) {
-  const canvas = new OffscreenCanvas(W, H);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const n = records.length;
-  const imgs = new Uint8Array(n * H * W * C);
-  const labels = new Float32Array(n * 2);
-  for (let i = 0; i < n; i++) {
-    const bmp = await createImageBitmap(records[i].img);
-    ctx.drawImage(bmp, 0, 0, W, H);
-    bmp.close();
-    const rgba = ctx.getImageData(0, 0, W, H).data;
-    let dst = i * H * W * C;
-    for (let p = 0; p < rgba.length; p += 4) {
-      imgs[dst++] = rgba[p];
-      imgs[dst++] = rgba[p + 1];
-      imgs[dst++] = rgba[p + 2];
-    }
-    labels[i * 2] = records[i].steer;
-    labels[i * 2 + 1] = records[i].throttle;
-    if (i % 100 === 0) post({ type: 'status', phase: 'loading', detail: `decoding ${i}/${n}` });
-  }
-  return { imgs, labels };
-}
-
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -84,58 +62,83 @@ function shuffleInPlace(arr) {
   return arr;
 }
 
-// Builds one training batch as tensors. Augmentation is a random
-// horizontal flip with steering negation (plan §2.3's "cheap, big win"):
-// it doubles the effective dataset and exactly balances the left/right
-// steering distribution, done on the uint8 buffer while assembling the
-// batch so no extra GPU pass is needed.
-function makeBatch(tf_, imgs, labels, indices, augment) {
-  const bs = indices.length;
-  const px = new Uint8Array(bs * H * W * C);
-  const steer = new Float32Array(bs);
-  const throt = new Float32Array(bs);
-  for (let b = 0; b < bs; b++) {
-    const i = indices[b];
-    const src = i * H * W * C;
-    const dst = b * H * W * C;
-    const flip = augment && Math.random() < 0.5;
-    if (!flip) {
-      px.set(imgs.subarray(src, src + H * W * C), dst);
-    } else {
-      for (let y = 0; y < H; y++) {
-        const rs = src + y * W * C;
-        const rd = dst + y * W * C;
-        for (let x = 0; x < W; x++) {
-          const s = rs + (W - 1 - x) * C;
-          const d = rd + x * C;
-          px[d] = imgs[s]; px[d + 1] = imgs[s + 1]; px[d + 2] = imgs[s + 2];
-        }
-      }
-    }
-    steer[b] = flip ? -labels[i * 2] : labels[i * 2];
-    throt[b] = labels[i * 2 + 1];
-  }
-  return tf_.tidy(() => ({
-    xs: tf_.tensor4d(px, [bs, H, W, C]).div(255),
-    ys: {
-      n_outputs0: tf_.tensor2d(steer, [bs, 1]),
-      n_outputs1: tf_.tensor2d(throt, [bs, 1]),
-    },
-  }));
+// JPEGs are decoded a batch at a time rather than all at once up front.
+// The old approach kept every frame decoded in one uint8 [n,H,W,C] buffer
+// -- 57.6 KB per frame, so 1200 frames is a 69 MB allocation that a phone's
+// worker heap may simply refuse (iOS kills the worker with no event, which
+// looks exactly like a hang). Decoding per batch caps live pixel memory at
+// one batch and starts training immediately instead of after a long silent
+// decode pass; the cost is re-decoding each frame once per epoch, which is
+// milliseconds against a batch step.
+// Sized to the model's input, not the recorded frame: drawImage does the
+// downscale on the way in, so a 64x64 profile never materializes a
+// full-resolution batch anywhere.
+let W = PROFILES[DEFAULT_PROFILE].w, H = PROFILES[DEFAULT_PROFILE].h;
+let decodeCanvas = null, decodeCtx = null;
+
+function setInputSize(w, h) {
+  W = w; H = h;
+  decodeCanvas = new OffscreenCanvas(W, H);
+  decodeCtx = decodeCanvas.getContext('2d', { willReadFrequently: true });
 }
 
-async function run({ epochs = 10, batchSize = 64, valFrac = 0.15 }) {
+// Augmentation is a random horizontal flip with steering negation (plan
+// §2.3's "cheap, big win"): it doubles the effective dataset and exactly
+// balances the left/right steering distribution. Flipping via the canvas
+// transform makes it free -- the draw has to happen anyway.
+async function decodeFrame(blob, flip) {
+  const bmp = await createImageBitmap(blob);
+  decodeCtx.setTransform(flip ? -1 : 1, 0, 0, 1, flip ? W : 0, 0);
+  decodeCtx.drawImage(bmp, 0, 0, W, H);
+  bmp.close();
+  return decodeCtx.getImageData(0, 0, W, H).data;
+}
+
+async function* batchesOf(records, indices, batchSize, augment) {
+  for (let s = 0; s < indices.length; s += batchSize) {
+    const idx = indices.slice(s, s + batchSize);
+    const bs = idx.length;
+    const px = new Uint8Array(bs * H * W * C);
+    const steer = new Float32Array(bs);
+    const throt = new Float32Array(bs);
+    for (let b = 0; b < bs; b++) {
+      const rec = records[idx[b]];
+      const flip = augment && Math.random() < 0.5;
+      const rgba = await decodeFrame(rec.img, flip);
+      let dst = b * H * W * C;
+      for (let p = 0; p < rgba.length; p += 4) {
+        px[dst++] = rgba[p];
+        px[dst++] = rgba[p + 1];
+        px[dst++] = rgba[p + 2];
+      }
+      steer[b] = flip ? -rec.steer : rec.steer;
+      throt[b] = rec.throttle;
+    }
+    yield tf.tidy(() => ({
+      xs: tf.tensor4d(px, [bs, H, W, C]).div(255),
+      ys: {
+        n_outputs0: tf.tensor2d(steer, [bs, 1]),
+        n_outputs1: tf.tensor2d(throt, [bs, 1]),
+      },
+    }));
+  }
+}
+
+async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE }) {
   const t0 = performance.now();
   post({ type: 'status', phase: 'loading', detail: 'starting backend' });
   await chooseBackend();
-  post({ type: 'backend', backend: tf.getBackend() });
+  const backend = tf.getBackend();
+  if (backend === 'cpu' && batchSize > CPU_BATCH) batchSize = CPU_BATCH;
+  const shape = PROFILES[profile] || PROFILES[DEFAULT_PROFILE];
+  setInputSize(shape.w, shape.h);
+  post({ type: 'backend', backend, batchSize, profile });
 
   post({ type: 'status', phase: 'loading', detail: 'reading tub' });
   const records = await dbGetAll();
   if (records.length < MIN_FRAMES) {
     throw new Error(`need ${MIN_FRAMES}+ frames to train (have ${records.length}) -- drive a few laps first`);
   }
-  const { imgs, labels } = await decodeAll(records);
 
   // Shuffle once, then split -- consecutive 20 Hz frames are nearly
   // identical, so a tail-of-recording val split would score whatever the
@@ -146,19 +149,17 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15 }) {
   const trainIdx = order.slice(nVal);
   post({ type: 'dataset', nTrain: trainIdx.length, nVal, epochs, batchSize });
 
-  const trainDs = tf.data.generator(function* () {
-    const epochOrder = shuffleInPlace(trainIdx.slice());
-    for (let s = 0; s < epochOrder.length; s += batchSize) {
-      yield makeBatch(tf, imgs, labels, epochOrder.slice(s, s + batchSize), true);
-    }
-  });
-  const valDs = tf.data.generator(function* () {
-    for (let s = 0; s < valIdx.length; s += batchSize) {
-      yield makeBatch(tf, imgs, labels, valIdx.slice(s, s + batchSize), false);
-    }
-  });
+  const trainDs = tf.data.generator(
+    () => batchesOf(records, shuffleInPlace(trainIdx.slice()), batchSize, true));
+  const valDs = tf.data.generator(
+    () => batchesOf(records, valIdx, batchSize, false));
 
-  const model = buildModel(tf);
+  // Named phases from here on: everything between 'dataset' and the first
+  // batch callback is one silent stretch, and on a slow device it is long
+  // enough (kernel compilation, first tensor uploads) to look like a hang.
+  post({ type: 'phase', phase: 'building the model' });
+  const model = buildModel(tf, profile);
+  post({ type: 'phase', phase: `warming up ${backend} — first batch is the slow one` });
   let batchNum = 0;
   try {
     await model.fitDataset(trainDs, {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createRenderer } from './gl.js';
+export { isGLAvailable } from './gl.js';
 
 // Not `new THREE.WebGLRenderer(...)` directly: on iOS Safari that throws deep
 // inside three.js on a context the browser refused to actually back. See gl.js

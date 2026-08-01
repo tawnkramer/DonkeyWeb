@@ -234,6 +234,24 @@
 
   #trainContent{max-width:640px;margin:0 auto}
   #lossChart{display:block;width:100%;height:200px;margin-top:8px;background:rgba(0,0,0,.25);border-radius:6px}
+  /* Full width under the chart rather than in the header's .t-status, which
+     is a single ellipsised line: on a phone the batch/ETA/stall detail is
+     the whole point and must not be the part that gets truncated. */
+  #trainProgress{
+    min-height:16px;margin-top:8px;font-size:11.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums;line-height:1.4;
+  }
+  #trainProgress.warn{color:var(--cone)}
+  #trainProfileRow{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  }
+  #trainProfile{
+    flex:1;max-width:280px;padding:8px 10px;border-radius:6px;
+    background:rgba(0,0,0,.3);color:var(--text);border:1px solid var(--panel-line);
+    font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:0;text-transform:none;
+  }
+  #trainProfile:disabled{opacity:.5}
   #trainBtn{
     width:100%;margin-top:14px;padding:12px 0;border-radius:6px;
     border:1px solid var(--cone);background:var(--cone);color:#1b1408;
@@ -418,6 +436,11 @@
   </div>
   <div id="trainContent">
     <canvas id="lossChart" width="640" height="200"></canvas>
+    <div id="trainProgress"></div>
+    <label id="trainProfileRow">
+      <span>Model</span>
+      <select id="trainProfile"></select>
+    </label>
     <button id="trainBtn">train model</button>
   </div>
 </div>
