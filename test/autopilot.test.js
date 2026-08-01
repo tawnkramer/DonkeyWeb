@@ -52,7 +52,9 @@ test('a saved model enables autopilot and its predictions drive the car', async 
   const btnDisabled = await page.evaluate(() => document.getElementById('pilotBtn').disabled);
   assert.equal(btnDisabled, false, 'button should enable once the model is loaded');
 
-  await page.evaluate(() => __sim.setPilotActive(true));
+  // Autopilot now lives on the Eval tab -- explicit rather than relying on
+  // "nothing else in this file changes mode" as an implicit side effect.
+  await page.evaluate(() => { __sim.setMode('eval'); __sim.setPilotActive(true); });
   const start = await page.evaluate(() => __sim.pilot.predCount);
   await waitFor(page, (n) => window.__sim.pilot.predCount > n + 5, {
     args: [start],
@@ -149,6 +151,7 @@ test('R reset kills the throttle too', async () => {
 test('shadow mode: pilot keeps predicting and the needle shows, but the user drives', async () => {
   await page.evaluate(() => {
     __sim.setPilotActive(false);
+    __sim.setMode('drive'); // shadow-driving is a Drive-tab thing, stated explicitly
     __sim.input.steer = 0.7;
     __sim.input.throttle = 0;
   });

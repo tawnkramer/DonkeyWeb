@@ -5,6 +5,7 @@ import { dismissHint } from './input.js';
 // ---------- autopilot toggle ----------
 // 'P' rather than 'A' for the shortcut: A is already steer-left.
 const btn = document.getElementById('pilotBtn');
+const evalEmpty = document.getElementById('evalEmpty');
 
 btn.addEventListener('click', () => { dismissHint(); setPilotActive(!pilot.active); });
 addEventListener('keydown', (e) => {
@@ -25,6 +26,7 @@ export function drawPilot() {
   btn.title = pilot.ready ? '' : 'train a model first';
   btn.classList.toggle('on', pilot.active);
   btn.textContent = pilot.active ? 'autopilot · on' : 'autopilot';
+  evalEmpty.hidden = pilot.ready;
 }
 
 // A finished training run hot-swaps the model in place: this is the

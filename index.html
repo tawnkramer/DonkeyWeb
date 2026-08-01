@@ -20,18 +20,55 @@
     font-family:'IBM Plex Mono',monospace;color:var(--text);
     background:linear-gradient(var(--dusk-top) 0%, #c3a7c9 55%, var(--dusk-low) 100%);
   }
-  #view{position:fixed;inset:0;display:block;touch-action:none}
+  /* width/height are load-bearing, not redundant with top/left: <canvas>
+     is a REPLACED element, so a positioned one takes its used size from
+     its INTRINSIC size (the width/height attributes three.js sets to
+     w*devicePixelRatio) -- `inset:0` alone does not stretch it. Without
+     an explicit CSS size, a dpr=2 phone displayed the canvas at 2x the
+     viewport, anchored top-left, so only the top-left quadrant of the
+     scene was visible. Pinning the CSS size decouples display size from
+     buffer resolution: CSS owns layout, sim/main.js's resize() owns only
+     the drawing buffer. */
+  #view{position:fixed;top:0;left:0;width:100%;height:100%;display:block;touch-action:none}
 
   /* ---------- HUD chrome ---------- */
   .hud{position:fixed;z-index:10;user-select:none;-webkit-user-select:none}
 
-  #brand{top:14px;left:16px;line-height:1.15}
-  #brand .word{font-family:'Chakra Petch';font-weight:700;font-size:20px;letter-spacing:.04em}
+  /* ---------- top nav: Drive / Data / Train / Eval ---------- */
+  #navbar{
+    top:0;left:0;right:0;height:52px;z-index:30;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:0 16px;background:var(--panel);border-bottom:1px solid var(--panel-line);
+    backdrop-filter:blur(6px);
+  }
+  #brand{line-height:1.15;white-space:nowrap}
+  #brand .word{font-family:'Chakra Petch';font-weight:700;font-size:18px;letter-spacing:.04em}
   #brand .word b{color:var(--cone);font-weight:700}
-  #brand .sub{font-size:10px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+  #brand .sub{font-size:9px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:1px}
+  .navgroup{display:flex;gap:8px}
+  .navbtn{
+    padding:8px 16px;border-radius:6px;border:1px solid var(--panel-line);
+    background:transparent;color:var(--dim);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:12px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  .navbtn.active{background:var(--cone);border-color:var(--cone);color:#1b1408}
+
+  /* driving chrome (Drive + Eval only) -- hidden by default, restored per
+     mode below. #view itself is never hidden: the Data/Train screens are
+     opaque panels that COVER it instead. Hiding it would zero out its
+     box, and resize() sizes the camera from that box -- so a resize
+     while parked on a non-driving tab would poison the aspect ratio. */
+  #povwrap, #telem, #hint, #evalPanel{ display:none; }
+  #touch{ display:none; }
+  body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap{ display:block; }
+  body[data-mode="drive"] #telem, body[data-mode="eval"] #telem{ display:flex; }
+  body[data-mode="drive"] #hint{ display:block; }
+  body[data-mode="eval"] #evalPanel{ display:block; }
+  @media (pointer:coarse){ body[data-mode="drive"] #touch{ display:flex; } }
 
   /* signature: the raw model-input feed */
-  #povwrap{top:14px;right:16px;text-align:right}
+  #povwrap{top:66px;right:16px;text-align:right}
   #povframe{
     display:inline-block;width:240px;box-sizing:border-box;
     background:var(--panel);border:1px solid var(--panel-line);
@@ -45,83 +82,72 @@
   #povlabel .rec.active::before{animation:blink 1.6s steps(1) infinite}
   @keyframes blink{50%{opacity:.25}}
 
-  /* dataset quality: frame count + live steering histogram, so "all
-     straight" data visibly piles up in the middle instead of being an
-     invisible problem you only discover after training */
-  #dataset{
-    top:223px;right:16px;width:240px;
+  /* eval: autopilot on/off, sits below the POV panel */
+  #evalPanel{
+    top:277px;right:16px;width:240px;text-align:center;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
-    padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
+    padding:12px;backdrop-filter:blur(6px);box-sizing:border-box;
   }
-  #dataset .d-head{display:flex;justify-content:space-between;align-items:baseline}
-  #dataset .t-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-  #dataset .t-value{font-family:'Chakra Petch';font-weight:600;font-size:15px;font-variant-numeric:tabular-nums}
-  #dataset .t-value small{font-size:9px;color:var(--dim);font-weight:500;margin-left:2px}
-  #dHist{position:relative;height:32px;display:flex;align-items:flex-end;gap:2px;margin-top:6px}
-  #dHist .bar{flex:1;background:var(--dim);border-radius:1px 1px 0 0;min-height:2px;transition:height .2s}
-  #dHist .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
-  #dataEditBtn{
-    width:100%;margin-top:8px;padding:5px 0;border-radius:6px;
-    border:1px solid var(--panel-line);background:transparent;color:var(--text);
-    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:11px;
-    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
-  }
-  #dataEditBtn:disabled{opacity:.4;cursor:default}
-
-  /* dataset editor: scrub the recorded tub, preview a frame, cut a bad tail */
-  #datasetEditor{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(10,11,15,.55)}
-  #datasetEditor[hidden]{display:none}
-  #datasetEditor .de-card{
-    width:300px;background:var(--panel);border:1px solid var(--panel-line);border-radius:10px;
-    padding:14px;backdrop-filter:blur(6px);box-sizing:border-box;
-  }
-  #datasetEditor .de-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-  #deClose{background:transparent;border:none;color:var(--text);font-size:20px;line-height:1;cursor:pointer;padding:0}
-  #deImg{width:100%;height:180px;object-fit:contain;background:#000;border-radius:4px;image-rendering:pixelated;display:block}
-  #deInfo{margin:8px 0;font-size:10px;letter-spacing:.04em;color:var(--dim)}
-  #deScrub{width:100%}
-  #deScrub:disabled{opacity:.4;cursor:default}
-  #deDeleteBtn{
-    width:100%;margin-top:10px;padding:7px 0;border-radius:6px;
-    border:1px solid var(--cone);background:transparent;color:var(--cone);
-    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:12.5px;
-    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
-  }
-  #deDeleteBtn:disabled{opacity:.4;cursor:default}
-
-  /* train panel: one button + live loss chart (train per batch, val per epoch) */
-  #train{
-    top:341px;right:16px;width:240px;
-    background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
-    padding:8px 10px;backdrop-filter:blur(6px);box-sizing:border-box;
-  }
-  #train .d-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-  .t-status{
-    font-size:9.5px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;
-    max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  }
-  #lossChart{display:block;width:100%;height:56px;margin-top:6px;background:rgba(0,0,0,.25);border-radius:3px}
-  #trainBtn{
-    width:100%;margin-top:8px;padding:7px 0;border-radius:6px;
-    border:1px solid var(--cone);background:var(--cone);color:#1b1408;
-    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
-    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
-  }
-  #trainBtn.running{background:transparent;color:var(--cone)}
-  #trainBtn:disabled{opacity:.55;cursor:default}
+  #evalEmpty{color:var(--dim);font-size:11px;margin-bottom:8px;line-height:1.5}
   #pilotBtn{
-    width:100%;margin-top:6px;padding:7px 0;border-radius:6px;
+    width:100%;padding:10px 0;border-radius:6px;
     border:1px solid var(--panel-line);background:transparent;color:var(--text);
-    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:14px;
     letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
   }
   #pilotBtn.on{background:var(--lane);border-color:var(--lane);color:#1b1408}
   #pilotBtn:disabled{opacity:.4;cursor:default}
 
+  /* ---------- full-screen tabs: Data / Train ---------- */
+  #screenData, #screenTrain{
+    display:none; position:fixed; top:52px; left:0; right:0; bottom:0; z-index:20;
+    background:var(--ink); padding:28px; overflow-y:auto; box-sizing:border-box;
+  }
+  body[data-mode="data"] #screenData{ display:block; }
+  body[data-mode="train"] #screenTrain{ display:block; }
+
+  #screenData .d-head, #screenTrain .d-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;max-width:640px;margin-left:auto;margin-right:auto}
+  #screenData .t-label, #screenTrain .t-label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  #screenData .t-value{font-family:'Chakra Petch';font-weight:600;font-size:20px;font-variant-numeric:tabular-nums}
+  #screenData .t-value small{font-size:11px;color:var(--dim);font-weight:500;margin-left:2px}
+  .t-status{
+    font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;
+    max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+
+  #dataEmpty, #evalPanel #evalEmpty{color:var(--dim);font-size:13px;text-align:center}
+  #dataEmpty{margin-top:15vh}
+  #dataContent{max-width:640px;margin:0 auto}
+  #dHist{position:relative;height:120px;display:flex;align-items:flex-end;gap:4px;margin-bottom:20px}
+  #dHist .bar{flex:1;background:var(--dim);border-radius:2px 2px 0 0;min-height:2px;transition:height .2s}
+  #dHist .mid{position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,.25)}
+  #deImg{width:100%;max-height:48vh;object-fit:contain;background:#000;border-radius:8px;image-rendering:pixelated;display:block}
+  #deInfo{margin:12px 0;font-size:12px;letter-spacing:.04em;color:var(--dim)}
+  #deScrub{width:100%}
+  #deScrub:disabled{opacity:.4;cursor:default}
+  #deDeleteBtn{
+    width:100%;margin-top:12px;padding:11px 0;border-radius:6px;
+    border:1px solid var(--cone);background:transparent;color:var(--cone);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
+    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
+  }
+  #deDeleteBtn:disabled{opacity:.4;cursor:default}
+
+  #trainContent{max-width:640px;margin:0 auto}
+  #lossChart{display:block;width:100%;height:200px;margin-top:8px;background:rgba(0,0,0,.25);border-radius:6px}
+  #trainBtn{
+    width:100%;margin-top:14px;padding:12px 0;border-radius:6px;
+    border:1px solid var(--cone);background:var(--cone);color:#1b1408;
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:14px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  #trainBtn.running{background:transparent;color:var(--cone)}
+  #trainBtn:disabled{opacity:.55;cursor:default}
+
   /* telemetry strip */
   #telem{
-    left:50%;bottom:16px;transform:translateX(-50%);
-    display:flex;align-items:center;gap:22px;
+    left:50%;top:66px;transform:translateX(-50%);
+    align-items:center;gap:22px;
     background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
     padding:10px 18px;backdrop-filter:blur(6px);white-space:nowrap;
   }
@@ -159,9 +185,8 @@
   }
   #hintClose:hover{color:#ff6b5e}
 
-  /* touch controls (only shown on coarse pointers) */
-  #touch{display:none;position:fixed;inset:auto 0 0 0;z-index:9;padding:0 18px 18px;justify-content:space-between;pointer-events:none}
-  @media (pointer:coarse){ #touch{display:flex} #telem{bottom:104px} }
+  /* touch controls (only shown on coarse pointers, Drive mode only) */
+  #touch{position:fixed;inset:auto 0 0 0;z-index:9;padding:0 18px 18px;justify-content:space-between;pointer-events:none}
   .pad{display:flex;gap:12px;pointer-events:auto}
   .pbtn{
     width:64px;height:64px;border-radius:14px;border:1px solid var(--panel-line);
@@ -169,24 +194,59 @@
   }
   .pbtn:active{background:var(--cone);border-color:var(--cone)}
 
+  /* steering joystick -- replaces the old left/right steer buttons */
+  .joystick{
+    width:96px;height:96px;border-radius:50%;position:relative;touch-action:none;
+    border:1px solid var(--panel-line);background:var(--panel);backdrop-filter:blur(6px);
+  }
+  .joy-thumb{
+    width:44px;height:44px;border-radius:50%;background:var(--cone);
+    position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;
+  }
+
   @media (max-width:760px){
+    #navbar{padding:0 10px}
+    #brand .word{font-size:15px}
+    #brand .sub{font-size:8px}
+    .navbtn{padding:6px 10px;font-size:10px}
     #povframe{width:160px}
     #pov{width:146px;height:110px}
-    #dataset{top:176px;width:160px}
-    #train{top:294px;width:160px}
-    #telem{gap:14px;padding:8px 12px}
-    .t-item{min-width:52px}
-    #steerbar{width:100px}.bar{width:80px}
+    /* telem moves below the POV panel instead of sharing its row -- at
+       phone widths there isn't room for a centered telemetry strip and a
+       right-anchored POV panel side by side (the strip either overflows
+       the screen or overlaps the panel, tried both, see commit history).
+       Narrower gaps/bars/min-widths so the strip fits on its own too. */
+    #telem{top:228px;gap:8px;padding:6px 10px}
+    .t-item{min-width:44px}
+    #steerbar{width:70px}.bar{width:56px}
+    #evalPanel{width:160px;top:293px}
+    #hint{top:300px}
+    #screenData, #screenTrain{padding:18px}
+    #dHist{height:80px}
+  }
+  /* Landscape phones (wide enough to skip the breakpoint above, short
+     enough that #hint's percentage-based top still lands on top of
+     #telem, which sits at a fixed pixel offset regardless of height). */
+  @media (max-height:500px) and (min-width:761px){
+    #hint{top:132px}
   }
   @media (prefers-reduced-motion:reduce){ #povlabel .rec.active::before{animation:none} }
 </style>
 </head>
-<body>
+<body data-mode="drive">
 <canvas id="view"></canvas>
 
-<div class="hud" id="brand">
-  <div class="word">donkey<b>.</b>web</div>
-  <div class="sub">M2 · the loop</div>
+<div class="hud" id="navbar">
+  <div id="brand">
+    <div class="word">donkey<b>.</b>web</div>
+    <div class="sub">M2 · the loop</div>
+  </div>
+  <div class="navgroup">
+    <button class="navbtn" data-mode="drive">Drive</button>
+    <button class="navbtn" data-mode="data">Data</button>
+    <button class="navbtn" data-mode="train">Train</button>
+    <button class="navbtn" data-mode="eval">Eval</button>
+  </div>
 </div>
 
 <div class="hud" id="povwrap">
@@ -196,21 +256,19 @@
   </div>
 </div>
 
-<div class="hud" id="dataset">
-  <div class="d-head">
-    <span class="t-label">Dataset</span>
-    <span class="t-value" id="dFrames">0<small>frames</small></span>
-  </div>
-  <div id="dHist"><div class="mid"></div></div>
-  <button id="dataEditBtn" disabled>edit dataset</button>
+<div class="hud" id="evalPanel">
+  <div id="evalEmpty">Train a model in the Train tab first.</div>
+  <button id="pilotBtn" disabled title="train a model first">autopilot</button>
 </div>
 
-<div class="hud" id="datasetEditor" hidden>
-  <div class="de-card">
-    <div class="de-head">
-      <span class="t-label">Dataset editor</span>
-      <button id="deClose" aria-label="close">&times;</button>
+<div class="hud" id="screenData">
+  <div id="dataEmpty">No frames recorded yet — drive a lap in Drive mode first.</div>
+  <div id="dataContent" hidden>
+    <div class="d-head">
+      <span class="t-label">Dataset</span>
+      <span class="t-value" id="dFrames">0<small>frames</small></span>
     </div>
+    <div id="dHist"><div class="mid"></div></div>
     <img id="deImg" alt="frame preview">
     <div id="deInfo"></div>
     <input type="range" id="deScrub" min="0" max="0" value="0" step="1">
@@ -218,14 +276,15 @@
   </div>
 </div>
 
-<div class="hud" id="train">
+<div class="hud" id="screenTrain">
   <div class="d-head">
     <span class="t-label">Train</span>
     <span class="t-status" id="trainStatus">idle</span>
   </div>
-  <canvas id="lossChart" width="220" height="56"></canvas>
-  <button id="trainBtn">train model</button>
-  <button id="pilotBtn" disabled title="train a model first">autopilot</button>
+  <div id="trainContent">
+    <canvas id="lossChart" width="640" height="200"></canvas>
+    <button id="trainBtn">train model</button>
+  </div>
 </div>
 
 <div class="hud" id="hint">
@@ -245,8 +304,7 @@
 
 <div id="touch">
   <div class="pad">
-    <button class="pbtn" data-k="left">◀</button>
-    <button class="pbtn" data-k="right">▶</button>
+    <div id="joystick" class="joystick"><div id="joyThumb" class="joy-thumb"></div></div>
   </div>
   <div class="pad">
     <button class="pbtn" data-k="brake">−</button>

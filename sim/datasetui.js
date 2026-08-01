@@ -1,32 +1,52 @@
-import { tub, tubTrimToLength } from '../data/tub.js';
+import { tub, tubTrimToLength, BINS } from '../data/tub.js';
 import { dbGet } from '../data/db.js';
-import { dismissHint } from './input.js';
+import { onModeChange } from './mode.js';
 
-// ---------- dataset editor ----------
-// Minimal viewer/editor for the recorded tub: scrub to a frame, see its
-// image + steer/throttle, and cut everything after it. Built for the
-// common cleanup case -- a bad tail (autopilot left running, throttle
-// stuck barely non-zero, ...) noticed only after the fact -- rather than
-// general-purpose per-frame editing.
-const openBtn = document.getElementById('dataEditBtn');
-const panel = document.getElementById('datasetEditor');
-const closeBtn = document.getElementById('deClose');
+// ---------- Data screen ----------
+// Full-screen dataset viewer/editor: frame count + live steering histogram
+// (so "all straight" data visibly piles up in the middle instead of being
+// an invisible problem you only discover after training), scrub to a
+// frame, see its image + steer/throttle, and cut everything after it --
+// built for the common cleanup case (a bad tail: autopilot left running,
+// throttle stuck barely non-zero, ...) rather than general-purpose
+// per-frame editing.
+const dataEmpty = document.getElementById('dataEmpty');
+const dataContent = document.getElementById('dataContent');
+const recDot = document.getElementById('recDot');
+const dFrames = document.getElementById('dFrames');
+const dHist = document.getElementById('dHist');
 const scrub = document.getElementById('deScrub');
 const info = document.getElementById('deInfo');
 const img = document.getElementById('deImg');
 const deleteBtn = document.getElementById('deDeleteBtn');
 
+const bars = [];
+for (let i = 0; i < BINS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  dHist.appendChild(bar);
+  bars.push(bar);
+}
+
+export function drawDataset(isRecording) {
+  recDot.classList.toggle('active', isRecording);
+
+  const total = tub.frames.length;
+  dFrames.innerHTML = total + '<small>frames</small>';
+
+  const max = Math.max(1, ...tub.bins);
+  for (let i = 0; i < BINS; i++) bars[i].style.height = Math.round((tub.bins[i] / max) * 100) + '%';
+}
+
 let objectUrl = null;
 
-function open() {
+function enterDataScreen() {
   if (!tub.frames.length) return;
-  dismissHint();
   scrub.max = String(tub.frames.length - 1);
   scrub.value = String(tub.frames.length - 1);
-  panel.hidden = false;
   scheduleRenderFrame();
 }
-function close() { panel.hidden = true; }
+onModeChange(next => { if (next === 'data') enterDataScreen(); });
 
 async function renderFrame() {
   const idx = Number(scrub.value);
@@ -66,20 +86,19 @@ function scheduleRenderFrame() {
   });
 }
 
-// The dataset panel's frame count updates every frame from the main
-// loop; the edit button only needs to flip idle<->enabled on the (much
-// rarer) 0-frames<->has-frames transition.
+// The Data screen's empty state flips on the (rare) 0-frames<->has-frames
+// transition; called every frame from the main loop like the rest of the
+// HUD draw calls, so deleting down to zero while already on this screen
+// flips immediately.
 let hadFrames = false;
-export function drawDatasetEditorAvailability() {
+export function syncDataAvailability() {
   const has = tub.frames.length > 0;
   if (has === hadFrames) return;
   hadFrames = has;
-  openBtn.disabled = !has;
+  dataEmpty.hidden = has;
+  dataContent.hidden = !has;
 }
 
-openBtn.addEventListener('click', open);
-closeBtn.addEventListener('click', close);
-addEventListener('keydown', (e) => { if (!panel.hidden && e.key === 'Escape') close(); });
 scrub.addEventListener('input', scheduleRenderFrame);
 deleteBtn.addEventListener('click', async () => {
   const idx = Number(scrub.value);

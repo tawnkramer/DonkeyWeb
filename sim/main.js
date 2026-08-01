@@ -1,16 +1,19 @@
 import * as THREE from 'three';
-import { renderer, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H } from './scene.js';
+import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H } from './scene.js';
 import './track.js';
 import './scenery.js';
 import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
 import { input, onReset } from './input.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
-import { drawHud, setFps, drawDataset } from './hud.js';
+import { drawHud, setFps } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
 import { pilot, pilotPredict, setPilotActive, loadPilotModel, onPilotDeactivate } from '../train/autopilot.js';
+import { getMode, setMode, onModeChange } from './mode.js';
+import './navui.js';
+import './joystick.js';
 import './trainui.js';
 import { drawPilot } from './pilotui.js';
-import { drawDatasetEditorAvailability } from './datasetui.js';
+import { drawDataset, syncDataAvailability } from './datasetui.js';
 
 // A reset means "back on the line, standing still": killing the throttle
 // belongs with it, or the car immediately drives off again on whatever
@@ -22,6 +25,16 @@ function resetToLine() {
 }
 onReset(resetToLine);
 onPilotDeactivate(resetToLine);
+
+// Leaving both driving screens (Drive/Eval) while autopilot is engaged
+// auto-stops it -- otherwise it'd keep "driving" in the background on a
+// frozen last prediction indefinitely. Reuses the existing
+// onPilotDeactivate -> resetToLine() hook above; switching directly
+// between Drive and Eval does NOT trigger this, both are the same
+// continuous driving context.
+onModeChange(next => {
+  if (next !== 'drive' && next !== 'eval' && pilot.active) setPilotActive(false);
+});
 
 // Not awaited: the sim starts driving immediately (recording just stays
 // paused via tub.loaded until this resolves) rather than blocking the
@@ -36,7 +49,7 @@ loadTub();
 // than whatever they were when this object was built.
 window.__sim = {
   input, V, tub, scene, training, trainStart, trainStop,
-  pilot, setPilotActive, loadPilotModel,
+  pilot, setPilotActive, loadPilotModel, getMode, setMode,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
@@ -137,7 +150,19 @@ function frame(now) {
   idleDt = stationary ? idleDt + dt : 0;
   const idle = idleDt > IDLE_SETTLE_S;
 
-  if (!idle) {
+  // The 3D view/POV feed and the 20Hz predict/record tick only matter on
+  // the two driving screens (Drive, Eval) -- Data/Train are full-screen,
+  // non-3D dashboards. Gating this is not just a CPU optimization like the
+  // idle-skip above: scroll-wheel throttle holds indefinitely once set
+  // (unlike keys), so without this gate, leaving throttle nonzero and
+  // switching to Data/Train would silently keep recording frames against a
+  // frozen, stale POV image (tubPush reads whatever's currently in the
+  // #pov canvas) and keep burning a TF.js forward pass every 50ms for
+  // nothing.
+  const mode = getMode();
+  const isDrivingScreen = mode === 'drive' || mode === 'eval';
+
+  if (isDrivingScreen && !idle) {
     // main view
     renderer.setRenderTarget(null);
     renderer.render(scene, chaseCam);
@@ -157,36 +182,64 @@ function frame(now) {
   }
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
-  // as physics -- only while the USER is driving forward on the track
-  // (autopilot laps are the model's output; feeding them back in as
-  // training data would just amplify its own mistakes)
-  const isRecording = !pilot.active && input.throttle > 0 && !offTrack;
+  // as physics -- only while the USER is driving forward on the track, in
+  // Drive mode specifically (autopilot laps -- Eval -- are the model's own
+  // output; feeding them back in as training data would just amplify its
+  // own mistakes)
+  const isRecording = mode === 'drive' && !pilot.active && input.throttle > 0 && !offTrack;
   recAcc += dt;
   if (recAcc >= REC_DT) {
     recAcc -= REC_DT;
-    // Predict whenever a model is loaded, even in manual mode: that's the
-    // "shadow drive" needle -- model opinion vs. your hands, live, even
-    // while parked. Not gated on idle like the render above: povImage is
-    // just stale rather than skipped, and a stale-but-unchanged frame
-    // (nothing moved) is exactly what a fresh render would produce anyway.
-    if (pilot.ready) pilotPredict(povImage);
-    if (isRecording) tubPush(simTime, input.steer, input.throttle);
+    if (isDrivingScreen) {
+      // Predict whenever a model is loaded, even in manual mode: that's the
+      // "shadow drive" needle -- model opinion vs. your hands, live, even
+      // while parked. Not gated on idle like the render above: povImage is
+      // just stale rather than skipped, and a stale-but-unchanged frame
+      // (nothing moved) is exactly what a fresh render would produce anyway.
+      if (pilot.ready) pilotPredict(povImage);
+      if (isRecording) tubPush(simTime, input.steer, input.throttle);
+    }
   }
 
   drawHud();
   drawDataset(isRecording);
-  drawDatasetEditorAvailability();
+  syncDataAvailability();
   drawPilot();
   setFps(fpsA, idle);
 }
 
 // ---------- resize ----------
+// Matches the drawing buffer + camera aspect to the canvas's ACTUAL
+// displayed box, which #view's CSS (width/height:100%) pins to the
+// viewport independently of anything here -- see the comment on that
+// rule for why the CSS size is load-bearing.
+//
+// Reading the canvas's own box rather than innerWidth/innerHeight is
+// what keeps the aspect ratio honest on iOS, where the layout and visual
+// viewports diverge as the toolbar shows/hides: whatever the browser
+// actually laid the canvas out as is exactly what we render for, so the
+// image can never end up stretched or offset. (This read is only
+// non-circular because CSS pins the size; deriving the size from the
+// canvas while the canvas was sized by its own buffer attributes made it
+// collapse to the 300x150 canvas default.)
+//
+// ResizeObserver rather than just window 'resize': it fires whenever the
+// box actually changes for any reason -- orientation, iOS's dynamic
+// toolbar, safe-area insets -- several of which don't reliably fire a
+// window resize event. Nothing here writes to the canvas's CSS, so this
+// cannot feed back into itself.
 function resize() {
-  const w = innerWidth, h = innerHeight;
+  const r = canvas.getBoundingClientRect();
+  // Guard against a zero-size read (never expected while #view is
+  // always laid out, but a 0 here would poison chaseCam.aspect with
+  // NaN/Infinity and blank the view until the next resize).
+  const w = Math.max(1, Math.round(r.width));
+  const h = Math.max(1, Math.round(r.height));
   renderer.setSize(w, h, false);
   chaseCam.aspect = w / h;
   chaseCam.updateProjectionMatrix();
 }
+new ResizeObserver(resize).observe(canvas);
 addEventListener('resize', resize);
 resize();
 

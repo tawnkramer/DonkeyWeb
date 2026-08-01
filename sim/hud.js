@@ -1,5 +1,4 @@
 import { V, cte, offTrack, throttleVis } from './car.js';
-import { tub, BINS } from '../data/tub.js';
 import { pilot } from '../train/autopilot.js';
 
 // ---------- HUD ----------
@@ -32,30 +31,4 @@ export function drawHud() {
 export function setFps(fpsA, idle) {
   el.fps.classList.toggle('idle', idle);
   el.fps.innerHTML = idle ? 'idle' : Math.round(fpsA) + '<small>fps</small>';
-}
-
-// ---------- dataset quality ----------
-// A live steering histogram, not just a frame count: driving straight for
-// a while piles every recorded frame into the center bin, which trains a
-// model that never learned to recover once off-center. Seeing that
-// imbalance build up while driving is the point.
-const recDot = document.getElementById('recDot');
-const dFrames = document.getElementById('dFrames');
-const dHist = document.getElementById('dHist');
-const bars = [];
-for (let i = 0; i < BINS; i++) {
-  const bar = document.createElement('div');
-  bar.className = 'bar';
-  dHist.appendChild(bar);
-  bars.push(bar);
-}
-
-export function drawDataset(isRecording) {
-  recDot.classList.toggle('active', isRecording);
-
-  const total = tub.frames.length;
-  dFrames.innerHTML = total + '<small>frames</small>';
-
-  const max = Math.max(1, ...tub.bins);
-  for (let i = 0; i < BINS; i++) bars[i].style.height = Math.round((tub.bins[i] / max) * 100) + '%';
 }
