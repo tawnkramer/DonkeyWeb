@@ -50,8 +50,8 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   }, { timeout: 240000, interval: 500, message: 'training never reached done' });
 
   const t = await page.evaluate(() => {
-    const { state, backend, epochLog, batchLosses, nTrain, nVal, stopped } = __sim.training;
-    return { state, backend, epochLog, batchLosses, nTrain, nVal, stopped };
+    const { state, backend, epochLog, batchLosses, nTrain, nVal, stopped, valAccuracy } = __sim.training;
+    return { state, backend, epochLog, batchLosses, nTrain, nVal, stopped, valAccuracy };
   });
   assert.equal(t.stopped, false);
   assert.ok(t.nTrain > 0 && t.nVal > 0, `expected a train/val split, got ${t.nTrain}/${t.nVal}`);
@@ -61,6 +61,8 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   for (const e of t.epochLog) {
     assert.ok(Number.isFinite(e.loss), `non-finite train loss: ${JSON.stringify(e)}`);
     assert.ok(Number.isFinite(e.valLoss), `non-finite val loss: ${JSON.stringify(e)}`);
+    assert.ok(Number.isFinite(e.valAccuracy), `non-finite val accuracy: ${JSON.stringify(e)}`);
+    assert.ok(e.valAccuracy >= 0 && e.valAccuracy <= 1, `val accuracy out of range: ${JSON.stringify(e)}`);
   }
 
   const saved = await page.evaluate(() => new Promise((resolve) => {

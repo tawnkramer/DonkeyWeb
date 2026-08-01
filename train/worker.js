@@ -124,6 +124,23 @@ async function* batchesOf(records, indices, batchSize, augment) {
   }
 }
 
+// Keep one stable, readable window for the UI. It is sampled from the
+// training split (not validation) and re-predicted after every epoch so the
+// overlay shows the model learning the same examples over time.
+async function steeringSlice(model, records, indices) {
+  const iterator = batchesOf(records, indices, indices.length, false);
+  const { value } = await iterator.next();
+  const prediction = model.predict(value.xs);
+  const predictedSteer = Array.from(await prediction[0].data());
+  const targetSteer = Array.from(await value.ys.n_outputs0.data());
+  value.xs.dispose();
+  value.ys.n_outputs0.dispose();
+  value.ys.n_outputs1.dispose();
+  prediction[0].dispose();
+  prediction[1].dispose();
+  return { targets: targetSteer, predictions: predictedSteer };
+}
+
 async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE }) {
   const t0 = performance.now();
   post({ type: 'status', phase: 'loading', detail: 'starting backend' });
@@ -147,6 +164,7 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
   const nVal = Math.max(1, Math.round(records.length * valFrac));
   const valIdx = order.slice(0, nVal);
   const trainIdx = order.slice(nVal);
+  const previewIdx = trainIdx.slice(0, Math.min(100, trainIdx.length));
   post({ type: 'dataset', nTrain: trainIdx.length, nVal, epochs, batchSize });
 
   const trainDs = tf.data.generator(
@@ -172,7 +190,10 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
           if (stopRequested) model.stopTraining = true;
         },
         onEpochEnd: async (epoch, logs) => {
-          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, atBatch: batchNum });
+          const valAccuracy = logs.val_n_outputs0_toleranceAccuracy;
+          const slice = await steeringSlice(model, records, previewIdx);
+          slice.epoch = epoch + 1;
+          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice });
           if (stopRequested) model.stopTraining = true;
         },
       },

@@ -13,7 +13,9 @@ export const training = {
   nTrain: 0,
   nVal: 0,
   batchLosses: [],   // one entry per training batch, across all epochs
-  epochLog: [],      // { epoch, loss, valLoss, atBatch }
+  epochLog: [],      // { epoch, loss, valLoss, valAccuracy, atBatch }
+  valAccuracy: null,
+  steeringSlice: null, // { epoch, targets, predictions } for the train UI
   elapsed: 0,
   stopped: false,
   error: null,
@@ -93,7 +95,9 @@ function onMessage({ data: m }) {
     }
     case 'epoch':
       training.epoch = m.epoch;
-      training.epochLog.push({ epoch: m.epoch, loss: m.loss, valLoss: m.valLoss, atBatch: m.atBatch });
+      training.valAccuracy = m.valAccuracy;
+      training.steeringSlice = m.steeringSlice || null;
+      training.epochLog.push({ epoch: m.epoch, loss: m.loss, valLoss: m.valLoss, valAccuracy: m.valAccuracy, atBatch: m.atBatch });
       break;
     case 'done':
       training.state = 'done';
@@ -153,7 +157,7 @@ export function trainStart(opts = {}) {
   Object.assign(training, {
     state: 'loading', detail: 'starting', backend: training.backend,
     epoch: 0, epochsTotal: 0, nTrain: 0, nVal: 0,
-    batchLosses: [], epochLog: [], elapsed: 0, stopped: false, error: null,
+    batchLosses: [], epochLog: [], valAccuracy: null, steeringSlice: null, elapsed: 0, stopped: false, error: null,
     batchesTotal: 0, batchesPerSec: 0, quietFor: 0, phase: '',
   });
   recentBatchAt = [];

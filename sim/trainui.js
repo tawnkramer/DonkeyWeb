@@ -12,6 +12,12 @@ const status = document.getElementById('trainStatus');
 const progress = document.getElementById('trainProgress');
 const chart = document.getElementById('lossChart');
 const ctx = chart.getContext('2d');
+const steeringChart = document.getElementById('steeringChart');
+const steeringCtx = steeringChart.getContext('2d');
+const batchLossValue = document.getElementById('batchLossValue');
+const avgLossValue = document.getElementById('avgLossValue');
+const valLossValue = document.getElementById('valLossValue');
+const valAccuracyValue = document.getElementById('valAccuracyValue');
 
 // A phone run is slow enough that a batch every 20s is normal, so silence
 // only becomes suspicious well past that.
@@ -32,6 +38,8 @@ document.addEventListener('visibilitychange', () => {
 
 const CONE = '#ff6a2b';
 const LIGHT = 'rgba(243,239,232,.5)';
+const AXIS = 'rgba(243,239,232,.38)';
+const LABEL = 'rgba(243,239,232,.68)';
 
 // Phones get the small model and small batches by default. Both limits are
 // about the same wall: a batch of 64 at 120x160 puts tens of MB of
@@ -129,17 +137,63 @@ function render() {
   btn.disabled = training.state === 'loading';
   profileSelect.disabled = busy;
   btn.classList.toggle('running', busy);
+  renderMetrics();
   drawChart();
+  drawSteeringChart();
+}
+
+function formatLoss(value) {
+  return Number.isFinite(value) ? value.toFixed(4) : '—';
+}
+
+function renderMetrics() {
+  const batches = training.batchLosses;
+  const epochs = training.epochLog;
+  const lastEpoch = epochs[epochs.length - 1];
+  const lastBatch = batches[batches.length - 1];
+  // Until the epoch callback arrives, show the mean of the batches in the
+  // current epoch. Once it arrives, use tfjs's epoch-level mean (which also
+  // accounts correctly for a short final batch).
+  const priorBatches = lastEpoch ? lastEpoch.atBatch : 0;
+  const currentBatches = batches.slice(priorBatches);
+  const avg = lastEpoch && priorBatches === batches.length
+    ? lastEpoch.loss
+    : currentBatches.length
+      ? currentBatches.reduce((sum, value) => sum + value, 0) / currentBatches.length
+      : lastEpoch?.loss;
+  batchLossValue.textContent = formatLoss(lastBatch);
+  avgLossValue.textContent = formatLoss(avg);
+  valLossValue.textContent = formatLoss(lastEpoch?.valLoss);
+  valAccuracyValue.textContent = Number.isFinite(lastEpoch?.valAccuracy)
+    ? `${(lastEpoch.valAccuracy * 100).toFixed(1)}%`
+    : '—';
 }
 
 // Log-scale y: the first batches' loss dwarfs everything after, and a
 // linear axis would flatten the entire interesting tail into one pixel.
 function drawChart() {
-  const w = chart.width, h = chart.height;
+  const cssWidth = chart.clientWidth || 640;
+  const cssHeight = chart.clientHeight || 320;
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(cssWidth * dpr), h = Math.round(cssHeight * dpr);
+  if (chart.width !== w || chart.height !== h) {
+    chart.width = w;
+    chart.height = h;
+  }
   ctx.clearRect(0, 0, w, h);
   const bl = training.batchLosses;
   const el = training.epochLog;
-  if (bl.length < 2) return;
+  const left = 58 * dpr, right = 16 * dpr, top = 18 * dpr, bottom = 34 * dpr;
+  const plotW = Math.max(w - left - right, 1);
+  const plotH = Math.max(h - top - bottom, 1);
+  const font = `${11 * dpr}px 'IBM Plex Mono', monospace`;
+  ctx.font = font;
+  ctx.textBaseline = 'middle';
+
+  if (bl.length < 2) {
+    drawAxes(w, h, left, top, right, bottom, font);
+    return;
+  }
 
   let lo = Infinity, hi = -Infinity;
   for (const v of bl) if (Number.isFinite(v) && v > 0) { if (v < lo) lo = v; if (v > hi) hi = v; }
@@ -147,8 +201,10 @@ function drawChart() {
   if (!Number.isFinite(lo)) return;
   const llo = Math.log10(lo);
   const span = Math.max(Math.log10(hi) - llo, 1e-3);
-  const X = (i) => (i / Math.max(bl.length - 1, 1)) * (w - 2) + 1;
-  const Y = (v) => h - 2 - ((Math.log10(Math.max(v, 1e-8)) - llo) / span) * (h - 4);
+  const X = (i) => left + (i / Math.max(bl.length - 1, 1)) * plotW;
+  const Y = (v) => top + plotH - ((Math.log10(Math.max(v, 1e-8)) - llo) / span) * plotH;
+
+  drawAxes(w, h, left, top, right, bottom, font, llo, span);
 
   ctx.strokeStyle = LIGHT;
   ctx.lineWidth = 1;
@@ -169,6 +225,106 @@ function drawChart() {
     ctx.beginPath();
     ctx.arc(ex(e), Y(e.valLoss), 2, 0, Math.PI * 2);
     ctx.fill();
+  }
+}
+
+function drawAxes(w, h, left, top, right, bottom, font, llo, span) {
+  const dpr = window.devicePixelRatio || 1;
+  const plotRight = w - right * dpr / dpr;
+  const plotBottom = h - bottom;
+  ctx.strokeStyle = AXIS;
+  ctx.fillStyle = LABEL;
+  ctx.lineWidth = dpr;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(left, plotBottom);
+  ctx.lineTo(plotRight, plotBottom);
+  ctx.stroke();
+  ctx.font = font;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  if (Number.isFinite(llo)) {
+    for (let i = 0; i <= 4; i++) {
+      const y = top + (h - top - bottom) * i / 4;
+      const value = 10 ** (llo + span * (1 - i / 4));
+      ctx.fillText(value >= 1 ? value.toFixed(1) : value.toPrecision(2), left - 8 * dpr, y);
+    }
+  }
+  ctx.textAlign = 'center';
+  ctx.fillText('batch', (left + plotRight) / 2, h - 11 * dpr);
+  ctx.save();
+  ctx.translate(13 * dpr, (top + plotBottom) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('loss (log scale)', 0, 0);
+  ctx.restore();
+}
+
+new ResizeObserver(drawChart).observe(chart);
+new ResizeObserver(drawSteeringChart).observe(steeringChart);
+
+function drawSteeringChart() {
+  const cssWidth = steeringChart.clientWidth || 640;
+  const cssHeight = steeringChart.clientHeight || 240;
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(cssWidth * dpr), h = Math.round(cssHeight * dpr);
+  if (steeringChart.width !== w || steeringChart.height !== h) {
+    steeringChart.width = w;
+    steeringChart.height = h;
+  }
+  steeringCtx.clearRect(0, 0, w, h);
+
+  const slice = training.steeringSlice;
+  const targets = slice?.targets || [];
+  const predictions = slice?.predictions || [];
+  if (!targets.length || targets.length !== predictions.length) return;
+
+  const left = 58 * dpr, right = 16 * dpr, top = 18 * dpr, bottom = 34 * dpr;
+  const plotRight = w - right;
+  const plotBottom = h - bottom;
+  const plotW = Math.max(plotRight - left, 1);
+  const plotH = Math.max(plotBottom - top, 1);
+  const X = (i) => left + (i / Math.max(targets.length - 1, 1)) * plotW;
+  const Y = (value) => top + (1 - (Math.max(-1, Math.min(1, value)) + 1) / 2) * plotH;
+  const font = `${11 * dpr}px 'IBM Plex Mono', monospace`;
+
+  steeringCtx.strokeStyle = AXIS;
+  steeringCtx.fillStyle = LABEL;
+  steeringCtx.lineWidth = dpr;
+  steeringCtx.beginPath();
+  steeringCtx.moveTo(left, top);
+  steeringCtx.lineTo(left, plotBottom);
+  steeringCtx.lineTo(plotRight, plotBottom);
+  steeringCtx.stroke();
+  steeringCtx.font = font;
+  steeringCtx.textAlign = 'right';
+  steeringCtx.textBaseline = 'middle';
+  for (const value of [-1, 0, 1]) steeringCtx.fillText(String(value), left - 8 * dpr, Y(value));
+  steeringCtx.textAlign = 'center';
+  steeringCtx.fillText('training frame', (left + plotRight) / 2, h - 11 * dpr);
+  steeringCtx.save();
+  steeringCtx.translate(13 * dpr, (top + plotBottom) / 2);
+  steeringCtx.rotate(-Math.PI / 2);
+  steeringCtx.fillText('steering', 0, 0);
+  steeringCtx.restore();
+
+  drawTrace(targets, LIGHT, 1.5, 'recorded');
+  drawTrace(predictions, CONE, 2, 'predicted');
+  steeringCtx.textAlign = 'left';
+  steeringCtx.textBaseline = 'top';
+  steeringCtx.fillStyle = LIGHT;
+  steeringCtx.fillText('recorded', left + 8 * dpr, top + 5 * dpr);
+  steeringCtx.fillStyle = CONE;
+  steeringCtx.fillText('predicted', left + 92 * dpr, top + 5 * dpr);
+  steeringCtx.fillStyle = LABEL;
+  steeringCtx.textAlign = 'right';
+  steeringCtx.fillText(`epoch ${slice.epoch}`, plotRight, top + 5 * dpr);
+
+  function drawTrace(values, color, width) {
+    steeringCtx.strokeStyle = color;
+    steeringCtx.lineWidth = width * dpr;
+    steeringCtx.beginPath();
+    values.forEach((value, i) => { if (i) steeringCtx.lineTo(X(i), Y(value)); else steeringCtx.moveTo(X(i), Y(value)); });
+    steeringCtx.stroke();
   }
 }
 

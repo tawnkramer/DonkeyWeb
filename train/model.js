@@ -75,6 +75,18 @@ export function buildModel(tf, profile = DEFAULT_PROFILE) {
   const throttle = tf.layers.dense({ units: 1, activation: 'linear', name: 'n_outputs1' }).apply(x);
 
   const model = tf.model({ inputs: imgIn, outputs: [steering, throttle], name: profile });
-  model.compile({ optimizer: tf.train.adam(), loss: 'meanSquaredError' });
+  // Exact-match accuracy is meaningless for continuous steering/throttle
+  // targets. This reports the fraction of steering predictions within 0.2 of
+  // recorded steering value. Throttle is often intentionally near-constant,
+  // so it would make this number less useful as a driving-quality signal.
+  const toleranceAccuracy = (yTrue, yPred) => tf.mean(tf.cast(
+    tf.lessEqual(tf.abs(tf.sub(yTrue, yPred)), 0.2), 'float32'));
+  model.compile({
+    optimizer: tf.train.adam(),
+    loss: 'meanSquaredError',
+    metrics: {
+      n_outputs0: [toleranceAccuracy],
+    },
+  });
   return model;
 }
