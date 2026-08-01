@@ -1,11 +1,13 @@
 import { pilot, setPilotActive, loadPilotModel, getAvailableModels, onPilotModelChange } from '../train/autopilot.js';
 import { onTraining } from '../train/trainer.js';
 import { dismissHint } from './input.js';
+import { getMode } from './mode.js';
 
 // ---------- autopilot toggle ----------
 // 'P' rather than 'A' for the shortcut: A is already steer-left.
 const btn = document.getElementById('pilotBtn');
 const evalEmpty = document.getElementById('evalEmpty');
+const evalPanel = document.getElementById('evalPanel');
 const modelSelect = document.getElementById('modelSelect');
 const modelStatus = document.getElementById('modelStatus');
 
@@ -25,6 +27,14 @@ addEventListener('keydown', (e) => {
   if ((e.key === 'p' || e.key === 'P') && pilot.ready) { dismissHint(); setPilotActive(!pilot.active); }
 });
 
+// On a phone the Eval controls deliberately disappear while the model is
+// driving so they do not cover the track. Any touch on the live view is the
+// emergency stop and causes the controls to return immediately.
+addEventListener('pointerdown', (e) => {
+  if (!pilot.active || getMode() !== 'eval' || !matchMedia('(pointer:coarse)').matches) return;
+  if (e.pointerType === 'touch' || e.pointerType === 'pen') setPilotActive(false);
+}, { capture: true });
+
 // Immediate-mode like the rest of the HUD: called every frame from the
 // main loop, diffed so the DOM is only touched on actual state changes.
 // This keeps the button honest no matter who flips pilot state -- the
@@ -38,6 +48,7 @@ export function drawPilot() {
   btn.disabled = !pilot.ready;
   btn.title = pilot.ready ? '' : 'train a model first';
   btn.classList.toggle('on', pilot.active);
+  evalPanel.classList.toggle('running', pilot.active);
   btn.textContent = pilot.active ? 'autopilot · on' : 'autopilot';
   evalEmpty.hidden = pilot.ready;
 }

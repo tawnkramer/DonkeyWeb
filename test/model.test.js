@@ -47,3 +47,21 @@ test('models menu opens as a touch-sized mobile control', async () => {
   await page.click('#deleteModelBtn');
   assert.equal(await page.$eval('#modelMenuStatus', el => el.textContent), 'the built-in model cannot be deleted');
 });
+
+test('mobile Eval hides the panel while driving and touch stops Autopilot', async () => {
+  await page.evaluate(() => { __sim.setMode('eval'); __sim.setPilotActive(true); });
+  await waitFor(page, () => window.__sim.pilot.active, { message: 'Autopilot did not start for mobile panel test' });
+  const running = await page.evaluate(() => {
+    const style = getComputedStyle(document.getElementById('evalPanel'));
+    return {
+      hidden: style.display === 'none',
+      bottomGap: parseFloat(style.bottom),
+    };
+  });
+  assert.equal(running.hidden, true);
+  assert.ok(running.bottomGap >= 10 && running.bottomGap < 40, `unexpected bottom gap ${running.bottomGap}`);
+
+  await page.evaluate(() => document.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true })));
+  await waitFor(page, () => !window.__sim.pilot.active, { message: 'touch did not stop mobile Autopilot' });
+  assert.notEqual(await page.$eval('#evalPanel', el => getComputedStyle(el).display), 'none');
+});

@@ -426,8 +426,9 @@
     body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap{ display:none; }
     #telemRec{display:inline-block}
     #telem{top:66px}
-    #evalPanel{top:134px}
+    #evalPanel{top:auto;bottom:18px;right:16px}
     #hint{top:150px}
+    body[data-mode="eval"] #evalPanel.running{display:none}
   }
   @media (prefers-reduced-motion:reduce){ .rec.active::before{animation:none} }
 </style>
