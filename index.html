@@ -6,6 +6,102 @@
 <title>donkey.web — M2 the loop</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Error overlay. Inline, classic (non-module), and first in <head> on
+     purpose: it has to be listening before the module graph starts
+     evaluating, or a module parse/import failure has nobody to report it.
+     Phones give you no console, so an uncaught error is otherwise
+     completely invisible -- the page just stops with no explanation.
+     Styles are set inline rather than via the stylesheet below so this
+     still renders if that stylesheet is what failed. -->
+<script>
+(function () {
+  var box = null, list = null;
+  var entries = [];
+
+  function css(el, s) { for (var k in s) el.style[k] = s[k]; }
+
+  function ensureBox() {
+    if (box) return;
+    box = document.createElement('div');
+    box.id = 'errbox';
+    css(box, {
+      position: 'fixed', left: '8px', right: '8px', top: '8px', zIndex: '9999',
+      maxHeight: '60vh', overflowY: 'auto', background: '#2a1216',
+      border: '1px solid #e0483e', borderRadius: '8px', padding: '10px 12px',
+      font: '12px/1.5 ui-monospace,Menlo,Consolas,monospace', color: '#ffd9d4',
+      whiteSpace: 'pre-wrap', wordBreak: 'break-word', boxShadow: '0 6px 24px rgba(0,0,0,.5)'
+    });
+
+    var head = document.createElement('div');
+    css(head, { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '6px' });
+    var title = document.createElement('b');
+    title.textContent = 'JavaScript error';
+    var btns = document.createElement('span');
+
+    var copy = document.createElement('button');
+    copy.textContent = 'copy';
+    var close = document.createElement('button');
+    close.textContent = '×';
+    [copy, close].forEach(function (b) {
+      css(b, {
+        background: 'transparent', border: '1px solid #e0483e', color: '#ffd9d4',
+        borderRadius: '4px', marginLeft: '6px', padding: '2px 8px', font: 'inherit', cursor: 'pointer'
+      });
+    });
+    copy.onclick = function () {
+      var t = report();
+      if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { copy.textContent = 'copied'; });
+    };
+    close.onclick = function () { box.parentNode.removeChild(box); box = null; };
+
+    btns.appendChild(copy); btns.appendChild(close);
+    head.appendChild(title); head.appendChild(btns);
+    box.appendChild(head);
+
+    list = document.createElement('div');
+    box.appendChild(list);
+    (document.body || document.documentElement).appendChild(box);
+  }
+
+  function report() {
+    return navigator.userAgent + '\n\n' + entries.join('\n\n');
+  }
+
+  function show(title, detail) {
+    entries.push(title + '\n' + detail);
+    try {
+      ensureBox();
+      var pre = document.createElement('div');
+      css(pre, { paddingTop: '6px', borderTop: entries.length > 1 ? '1px solid rgba(224,72,62,.4)' : 'none' });
+      pre.textContent = title + '\n' + detail;
+      list.appendChild(pre);
+    } catch (_) { /* overlay itself must never throw over the real error */ }
+  }
+
+  // Capture phase so failed <script>/<link>/<img> loads are caught too --
+  // those fire on the element, not on window, and do not bubble.
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target !== window && e.target.tagName) {
+      show('Failed to load <' + e.target.tagName.toLowerCase() + '>',
+           e.target.src || e.target.href || '(unknown url)');
+      return;
+    }
+    var stack = (e.error && e.error.stack) || '';
+    show(e.message || 'Error',
+         (e.filename || '') + (e.lineno ? ':' + e.lineno : '') + (stack ? '\n' + stack : ''));
+  }, true);
+
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    show('Unhandled promise rejection', (r && (r.stack || r.message)) || String(r));
+  });
+
+  // Lets tests (and a curious devtools session) drive the overlay.
+  window.__errors = { show: show, report: report, entries: entries };
+})();
+</script>
+
 <style>
   :root{
     --dusk-top:#8ea0d8; --dusk-low:#f2b98e;
@@ -77,9 +173,12 @@
   #pov{width:226px;height:170px;display:block;image-rendering:pixelated;border-radius:3px;background:#000}
   #povlabel{display:flex;justify-content:space-between;gap:12px;font-size:9.5px;color:var(--dim);
     letter-spacing:.12em;text-transform:uppercase;padding:5px 2px 1px}
-  #povlabel .rec::before{content:'●';margin-right:5px}
-  #povlabel .rec.active{color:var(--cone)}
-  #povlabel .rec.active::before{animation:blink 1.6s steps(1) infinite}
+  /* not scoped to #povlabel: the same indicator is reused in the telemetry
+     strip, which is the only place it shows on touch devices (the cam
+     preview that normally hosts it is hidden there) */
+  .rec::before{content:'●';margin-right:5px}
+  .rec.active{color:var(--cone)}
+  .rec.active::before{animation:blink 1.6s steps(1) infinite}
   @keyframes blink{50%{opacity:.25}}
 
   /* eval: autopilot on/off, sits below the POV panel */
@@ -151,6 +250,9 @@
     background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
     padding:10px 18px;backdrop-filter:blur(6px);white-space:nowrap;
   }
+  /* shown only on touch devices, where the cam preview that normally
+     carries the recording dot is hidden */
+  #telemRec{display:none;font-size:11px;color:var(--dim);line-height:1}
   .t-item{display:flex;flex-direction:column;gap:4px;min-width:64px}
   .t-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
   .t-value{font-family:'Chakra Petch';font-weight:600;font-size:18px;font-variant-numeric:tabular-nums}
@@ -244,7 +346,26 @@
     .joystick{width:96px;height:96px}
     .joy-thumb{width:42px;height:42px}
   }
-  @media (prefers-reduced-motion:reduce){ #povlabel .rec.active::before{animation:none} }
+
+  /* Touch devices: drop the cam preview and put the drive telemetry at the
+     top. Keyed on pointer:coarse rather than a width/height breakpoint so
+     it tracks "is this a phone/tablet" -- a landscape phone is 844px wide
+     and would slip past a width query, while a narrowed desktop window
+     would wrongly lose its preview.
+     The preview is only a DISPLAY of the POV canvas: the render loop still
+     draws into that canvas and tubPush still reads it back, so hiding it
+     changes nothing about what gets recorded or what the model sees (there
+     is a test pinning exactly that). It does hide #recDot, though, which
+     is why the telemetry strip carries its own recording indicator here.
+     Comes after both breakpoints above so its telem/eval offsets win. */
+  @media (pointer:coarse){
+    body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap{ display:none; }
+    #telemRec{display:inline-block}
+    #telem{top:66px}
+    #evalPanel{top:134px}
+    #hint{top:150px}
+  }
+  @media (prefers-reduced-motion:reduce){ .rec.active::before{animation:none} }
 </style>
 </head>
 <body data-mode="drive">
@@ -309,6 +430,7 @@
 </div>
 
 <div class="hud" id="telem">
+  <span class="rec" id="telemRec" title="recording"></span>
   <div class="t-item"><span class="t-label">Speed</span><span class="t-value" id="tSpeed">0<small>km/h</small></span></div>
   <div class="t-item"><span class="t-label">Steering</span><div class="bar" id="steerbar"><div class="tick"></div><div class="fill" id="steerfill"></div><div class="needle" id="steerneedle"></div></div></div>
   <div class="t-item"><span class="t-label">Throttle</span><div class="bar" id="throtbar"><div class="fill" id="throtfill"></div></div></div>

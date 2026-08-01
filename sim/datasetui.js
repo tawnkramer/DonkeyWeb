@@ -12,7 +12,10 @@ import { onModeChange } from './mode.js';
 // per-frame editing.
 const dataEmpty = document.getElementById('dataEmpty');
 const dataContent = document.getElementById('dataContent');
-const recDot = document.getElementById('recDot');
+// Two recording indicators, only one of which is visible at a time (CSS
+// decides): the one on the cam preview for pointer devices, and one in the
+// telemetry strip for touch devices, where the preview is hidden.
+const recDots = [document.getElementById('recDot'), document.getElementById('telemRec')];
 const dFrames = document.getElementById('dFrames');
 const dHist = document.getElementById('dHist');
 const scrub = document.getElementById('deScrub');
@@ -29,7 +32,7 @@ for (let i = 0; i < BINS; i++) {
 }
 
 export function drawDataset(isRecording) {
-  recDot.classList.toggle('active', isRecording);
+  for (const dot of recDots) dot.classList.toggle('active', isRecording);
 
   const total = tub.frames.length;
   dFrames.innerHTML = total + '<small>frames</small>';
