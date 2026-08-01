@@ -1,6 +1,6 @@
 import { pilot, loadPilotModel, getAvailableModels } from '../train/autopilot.js';
 import {
-  createUserModel, getModel, modelStorageKey, setActiveModelId,
+  createUserModel, deleteUserModel, getModel, modelStorageKey, setActiveModelId,
 } from '../train/models.js';
 import { unzipEntries, zipEntries } from '../utils/zip.js';
 
@@ -8,6 +8,7 @@ const menuBtn = document.getElementById('modelMenuBtn');
 const menu = document.getElementById('modelMenu');
 const loadBtn = document.getElementById('loadModelBtn');
 const saveBtn = document.getElementById('saveModelBtn');
+const deleteBtn = document.getElementById('deleteModelBtn');
 const input = document.getElementById('modelFileInput');
 const status = document.getElementById('modelMenuStatus');
 let transientStatusTimer = null;
@@ -152,6 +153,32 @@ saveBtn.addEventListener('click', async () => {
     setStatus(String(err.message || err));
   } finally {
     saveBtn.disabled = false;
+  }
+});
+
+deleteBtn.addEventListener('click', async () => {
+  if (!pilot.modelId) { setStatus('no model is loaded'); return; }
+  const record = await getModel(pilot.modelId);
+  if (!record || record.kind === 'builtin') {
+    setStatus('the built-in model cannot be deleted');
+    return;
+  }
+  if (!confirm(`Delete ${record.name}? This cannot be undone.`)) return;
+  deleteBtn.disabled = true;
+  setStatus('deleting model…');
+  try {
+    const tf = await import('../vendor/tf.mjs');
+    await tf.ready();
+    await tf.io.removeModel(record.storageKey);
+    await deleteUserModel(record.id);
+    setActiveModelId('builtin-example');
+    await loadPilotModel('builtin-example');
+    setStatus(`${record.name} deleted`);
+  } catch (err) {
+    setStatus(String(err.message || err));
+  } finally {
+    deleteBtn.disabled = false;
+    await getAvailableModels().catch(() => {});
   }
 });
 
