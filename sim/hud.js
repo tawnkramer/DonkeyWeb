@@ -1,19 +1,24 @@
-import { V, cte, offTrack, throttleVis } from './car.js';
+import { V, throttleVis } from './car.js';
+import { tub } from '../data/tub.js';
 import { pilot } from '../train/autopilot.js';
+import { getMode } from './mode.js';
 
 // ---------- HUD ----------
 const el = {
-  speed: document.getElementById('tSpeed'),
+  metricLabel: document.getElementById('tTelemMetric'),
+  metricValue: document.getElementById('tTelemValue'),
   steer: document.getElementById('steerfill'),
   throt: document.getElementById('throtfill'),
-  cte:   document.getElementById('tCte'),
-  cteItem: document.getElementById('cteItem'),
   fps:   document.getElementById('tFps'),
   needle: document.getElementById('steerneedle')
 };
 
 export function drawHud() {
-  el.speed.innerHTML = Math.round(Math.abs(V.speed)*3.6) + '<small>km/h</small>';
+  const evalMode = getMode() === 'eval';
+  el.metricLabel.textContent = evalMode ? 'Speed' : 'Frames';
+  el.metricValue.innerHTML = evalMode
+    ? Math.round(Math.abs(V.speed) * 3.6) + '<small>km/h</small>'
+    : tub.frames.length;
   const s = V.steer / V.MAX_STEER; // +1 left … -1 right
   const pct = Math.abs(s)*50;
   el.steer.style.width = pct + '%';
@@ -24,8 +29,6 @@ export function drawHud() {
   // can shadow-drive against it. +1 = left, same mapping as the fill.
   el.needle.style.display = pilot.ready ? 'block' : 'none';
   if (pilot.ready) el.needle.style.left = (50 - pilot.steer*50) + '%';
-  el.cte.innerHTML = cte.toFixed(1) + '<small>m</small>';
-  el.cteItem.classList.toggle('offtrack', offTrack);
 }
 
 export function setFps(fpsA, idle) {
