@@ -185,22 +185,30 @@
   }
   #hintClose:hover{color:#ff6b5e}
 
-  /* touch controls (only shown on coarse pointers, Drive mode only) */
+  /* touch controls (only shown on coarse pointers, Drive mode only):
+     two analog sticks, left steers and right throttles. Both replaced
+     on/off buttons -- see sim/joystick.js for why continuous input
+     matters to the recorded training data. */
   #touch{position:fixed;inset:auto 0 0 0;z-index:9;padding:0 18px 18px;justify-content:space-between;pointer-events:none}
   .pad{display:flex;gap:12px;pointer-events:auto}
-  .pbtn{
-    width:64px;height:64px;border-radius:14px;border:1px solid var(--panel-line);
-    background:var(--panel);color:var(--text);font-size:22px;backdrop-filter:blur(6px);
-  }
-  .pbtn:active{background:var(--cone);border-color:var(--cone)}
-
-  /* steering joystick -- replaces the old left/right steer buttons */
   .joystick{
-    width:96px;height:96px;border-radius:50%;position:relative;touch-action:none;
+    width:120px;height:120px;border-radius:50%;position:relative;touch-action:none;
     border:1px solid var(--panel-line);background:var(--panel);backdrop-filter:blur(6px);
   }
+  /* label above rather than below: #touch's bottom padding is the screen
+     edge, and a descender there would clip on a phone. */
+  .joystick::after{
+    content:attr(data-label);position:absolute;left:0;right:0;top:-15px;text-align:center;
+    font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
+  }
+  /* the axis each stick actually reads, as a faint guide line */
+  .joystick::before{
+    content:'';position:absolute;background:rgba(255,255,255,.10);
+  }
+  .joystick[data-axis="x"]::before{left:14px;right:14px;top:50%;height:1px;margin-top:-.5px}
+  .joystick[data-axis="y"]::before{top:14px;bottom:14px;left:50%;width:1px;margin-left:-.5px}
   .joy-thumb{
-    width:44px;height:44px;border-radius:50%;background:var(--cone);
+    width:52px;height:52px;border-radius:50%;background:var(--cone);
     position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;
   }
 
@@ -224,11 +232,17 @@
     #screenData, #screenTrain{padding:18px}
     #dHist{height:80px}
   }
-  /* Landscape phones (wide enough to skip the breakpoint above, short
-     enough that #hint's percentage-based top still lands on top of
-     #telem, which sits at a fixed pixel offset regardless of height). */
-  @media (max-height:500px) and (min-width:761px){
+  /* Landscape phones: wide enough to skip the width breakpoint above, but
+     only ~390px tall, so vertical space is the scarce axis. Everything
+     here is about not stacking the nav bar, POV panel and touch sticks
+     into each other -- at full size the POV panel's bottom edge lands on
+     top of the throttle stick and hides its label. */
+  @media (max-height:560px){
     #hint{top:132px}
+    #povframe{width:160px}
+    #pov{width:146px;height:110px}
+    .joystick{width:96px;height:96px}
+    .joy-thumb{width:42px;height:42px}
   }
   @media (prefers-reduced-motion:reduce){ #povlabel .rec.active::before{animation:none} }
 </style>
@@ -304,11 +318,10 @@
 
 <div id="touch">
   <div class="pad">
-    <div id="joystick" class="joystick"><div id="joyThumb" class="joy-thumb"></div></div>
+    <div id="joystick" class="joystick" data-axis="x" data-label="steer"><div id="joyThumb" class="joy-thumb"></div></div>
   </div>
   <div class="pad">
-    <button class="pbtn" data-k="brake">−</button>
-    <button class="pbtn" data-k="gas">▲</button>
+    <div id="throttleStick" class="joystick" data-axis="y" data-label="throttle"><div id="throttleThumb" class="joy-thumb"></div></div>
   </div>
 </div>
 
