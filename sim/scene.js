@@ -1,7 +1,13 @@
 import * as THREE from 'three';
+import { createRenderer } from './gl.js';
 
-export const canvas = document.getElementById('view');
-export const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true, logarithmicDepthBuffer:true});
+// Not `new THREE.WebGLRenderer(...)` directly: on iOS Safari that throws deep
+// inside three.js on a context the browser refused to actually back. See gl.js
+// -- it validates the context first and retries with cheaper attributes, so
+// `canvas` here may be a replacement element, not the one in the HTML.
+const gl = createRenderer(document.getElementById('view'));
+export const renderer = gl.renderer;
+export const canvas = gl.canvas;
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
