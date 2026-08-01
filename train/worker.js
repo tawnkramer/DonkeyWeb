@@ -1,7 +1,7 @@
 // Training runs in this module worker so the sim's render loop never
 // janks (plan §2.3). Workers share the origin's IndexedDB, so the tub is
 // read directly here via the same data/db.js the recorder uses -- no need
-// to ship megabytes of JPEG blobs through postMessage.
+// to ship megabytes of image blobs through postMessage.
 import * as tf from '../vendor/tf.mjs';
 import { dbGetAll } from '../data/db.js';
 import { buildModel, PROFILES, DEFAULT_PROFILE } from './model.js';
@@ -62,7 +62,7 @@ function shuffleInPlace(arr) {
   return arr;
 }
 
-// JPEGs are decoded a batch at a time rather than all at once up front.
+// Frames are decoded a batch at a time rather than all at once up front.
 // The old approach kept every frame decoded in one uint8 [n,H,W,C] buffer
 // -- 57.6 KB per frame, so 1200 frames is a 69 MB allocation that a phone's
 // worker heap may simply refuse (iOS kills the worker with no event, which

@@ -10,8 +10,22 @@ import { dbPut, dbDelete, dbDeleteMany, dbGetAll } from './db.js';
 //
 // tub.frames holds lightweight metadata only (no image); images live in
 // IndexedDB and are fetched on demand (export, viewing a frame later),
-// so an hour of driving doesn't also duplicate tens of MB of JPEGs in JS
+// so an hour of driving doesn't also duplicate tens of MB of images in JS
 // memory on top of what's already on disk.
+//
+// Frames are stored as PNG, measured against JPEG on real POV frames at
+// 160x120: PNG averages 2.7 KB against JPEG q0.70's 2.4 KB and q0.90's
+// 3.5 KB. Flat-shaded synthetic renders -- big uniform regions of grass,
+// road and sky gradient -- are close to the best case for lossless
+// compression and close to the worst case for a DCT, so lossless costs
+// ~13% on disk and beats q0.90 outright.
+//
+// Losing the artifacts matters beyond looks: inference feeds the model the
+// RAW POV canvas (see train/autopilot.js), so every artifact in a recorded
+// frame is a difference between what the model trains on and what it drives
+// on. JPEG q0.70 averaged 3.0/255 of error per channel with ringing up to
+// 171 around exactly the high-contrast edges -- lane lines and cones -- that
+// the model is supposed to be steering by.
 
 // bins is a live steering histogram over [-1,1], kept in sync incrementally
 // on push/trim rather than recomputed from the full frame list every UI
@@ -52,7 +66,7 @@ export function tubPush(t, steer, throttle) {
     pendingWork.delete(encodeDone);
     settleEncode();
 
-    // If this frame got trimmed (off-track) before its JPEG finished
+    // If this frame got trimmed (off-track) before its image finished
     // encoding, don't let the DB write resurrect it after the fact.
     if (frame.trimmed) {
       settlePersist();
@@ -65,11 +79,11 @@ export function tubPush(t, steer, throttle) {
         settlePersist();
       });
     pendingWork.add(persist);
-  }, 'image/jpeg', 0.7);
+  }, 'image/png');
 }
 
 // Shared by both trim paths below. Frames pushed this session carry a
-// persistDone promise and must wait for their JPEG write to land before
+// persistDone promise and must wait for their image write to land before
 // the delete (see tubPush); frames restored by loadTub() from a prior
 // session are already fully persisted and have no such promise to wait on.
 function removeFrame(removed) {
@@ -138,7 +152,7 @@ export async function loadTub() {
   tub.loaded = true;
 }
 
-// Lets tests wait until all in-flight JPEG/blob writes have either landed
+// Lets tests wait until all in-flight image/blob writes have either landed
 // in IndexedDB or been trimmed away. This makes persistence assertions
 // deterministic when several tests share the same browser page state.
 export async function waitForTubIdle() {
