@@ -8,9 +8,10 @@ import { input, onReset } from './input.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
-import { pilot, pilotPredict, setPilotActive, loadPilotModel, onPilotDeactivate } from '../train/autopilot.js';
+import { pilot, pilotPredict, setPilotActive, loadPilotModel, getAvailableModels, onPilotDeactivate } from '../train/autopilot.js';
 import { getMode, setMode, onModeChange } from './mode.js';
 import './navui.js';
+import './modelui.js';
 import './joystick.js';
 import './trainui.js';
 import { drawPilot } from './pilotui.js';
@@ -51,6 +52,7 @@ loadTub();
 window.__sim = {
   input, V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
+  getAvailableModels,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },

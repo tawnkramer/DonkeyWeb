@@ -3,15 +3,20 @@
 // store for now (tub frames); "named tubs" from the plan can become
 // additional stores or a `tub` index later without changing this shape.
 const DB_NAME = 'donkeyweb';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'frames';
+const MODELS = 'models';
 
 let dbPromise = null;
 function openDB() {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' });
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+        if (!db.objectStoreNames.contains(MODELS)) db.createObjectStore(MODELS, { keyPath: 'id' });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -83,6 +88,49 @@ export async function dbGetAll() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readonly');
     const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Model metadata deliberately lives in the app database rather than
+// TensorFlow.js's private `models_store`, so the UI can list models without
+// depending on tfjs's internal IndexedDB schema.
+export async function dbModelPut(record) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MODELS, 'readwrite');
+    tx.objectStore(MODELS).put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function dbModelGet(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MODELS, 'readonly');
+    const req = tx.objectStore(MODELS).get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function dbModelDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MODELS, 'readwrite');
+    tx.objectStore(MODELS).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function dbModelGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MODELS, 'readonly');
+    const req = tx.objectStore(MODELS).getAll();
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });

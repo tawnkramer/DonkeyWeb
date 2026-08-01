@@ -1,5 +1,6 @@
 import { training, trainStart, trainStop, onTraining } from '../train/trainer.js';
 import { PROFILES } from '../train/model.js';
+import { createUserModel, modelStorageKey, setActiveModelId } from '../train/models.js';
 import { dismissHint } from './input.js';
 
 // ---------- train panel ----------
@@ -53,12 +54,25 @@ for (const [name, p] of Object.entries(PROFILES)) {
 }
 profileSelect.value = isPhone ? 'tiny' : 'linear';
 
-btn.addEventListener('click', () => {
+btn.addEventListener('click', async () => {
   dismissHint();
   if (training.state === 'running') trainStop();
   else {
     hiddenWhileBusy = false;
-    trainStart({ profile: profileSelect.value, batchSize: isPhone ? 16 : 64 });
+    const profile = profileSelect.value;
+    const model = await createUserModel({
+      name: `Trained ${profile} model`,
+      source: 'trained',
+      profile,
+      input: `${PROFILES[profile].w}×${PROFILES[profile].h}`,
+    });
+    setActiveModelId(model.id);
+    trainStart({
+      profile,
+      batchSize: isPhone ? 16 : 64,
+      modelId: model.id,
+      modelUrl: modelStorageKey(model.id),
+    });
   }
 });
 

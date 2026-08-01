@@ -1,4 +1,4 @@
-import { pilot, setPilotActive, loadPilotModel } from '../train/autopilot.js';
+import { pilot, setPilotActive, loadPilotModel, getAvailableModels, onPilotModelChange } from '../train/autopilot.js';
 import { onTraining } from '../train/trainer.js';
 import { dismissHint } from './input.js';
 
@@ -6,8 +6,21 @@ import { dismissHint } from './input.js';
 // 'P' rather than 'A' for the shortcut: A is already steer-left.
 const btn = document.getElementById('pilotBtn');
 const evalEmpty = document.getElementById('evalEmpty');
+const modelSelect = document.getElementById('modelSelect');
+const modelStatus = document.getElementById('modelStatus');
 
 btn.addEventListener('click', () => { dismissHint(); setPilotActive(!pilot.active); });
+modelSelect.addEventListener('change', async () => {
+  dismissHint();
+  setPilotActive(false);
+  modelSelect.disabled = true;
+  modelStatus.textContent = 'loading model…';
+  const ready = await loadPilotModel(modelSelect.value);
+  modelSelect.disabled = false;
+  modelStatus.textContent = ready ? '' : (pilot.error || 'could not load model');
+  await refreshModels();
+  drawPilot();
+});
 addEventListener('keydown', (e) => {
   if ((e.key === 'p' || e.key === 'P') && pilot.ready) { dismissHint(); setPilotActive(!pilot.active); }
 });
@@ -29,6 +42,22 @@ export function drawPilot() {
   evalEmpty.hidden = pilot.ready;
 }
 
+async function refreshModels() {
+  const models = await getAvailableModels();
+  const selected = pilot.modelId || models.find(model => model.id === modelSelect.value)?.id;
+  modelSelect.replaceChildren(...models.map(model => {
+    const label = model.kind === 'builtin' ? 'Built-in' : `User · ${model.name}`;
+    const option = new Option(label, model.id);
+    option.selected = model.id === selected;
+    return option;
+  }));
+}
+
+onPilotModelChange(() => {
+  if (pilot.ready && pilot.modelName) modelStatus.textContent = `${pilot.modelName} ready`;
+  refreshModels().catch(err => { modelStatus.textContent = String(err.message || err); });
+});
+
 // A finished training run hot-swaps the model in place: this is the
 // plan's collect-more-data -> retrain -> try-again loop with no reload.
 onTraining((t) => {
@@ -37,4 +66,6 @@ onTraining((t) => {
 
 // Try to load whatever model a previous session trained; enables the
 // button (and the shadow needle) without requiring a fresh train first.
-loadPilotModel();
+refreshModels()
+  .then(() => loadPilotModel())
+  .catch(err => { modelStatus.textContent = String(err.message || err); });

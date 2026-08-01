@@ -6,6 +6,12 @@
 // pays the ~1.5 MB module parse; this is a second tf instance separate
 // from the training worker's, which is why train/model.js takes tf as a
 // parameter.
+import {
+  ensureModelMetadata, getActiveModelId, getModel, listModels, modelLoadUrl,
+  setActiveModelId, BUILTIN_MODEL,
+} from './models.js';
+import { buildModel } from './model.js';
+
 export const pilot = {
   active: false,   // model is driving the car
   ready: false,    // a model is loaded and warmed up
@@ -14,21 +20,58 @@ export const pilot = {
   throttle: 0,
   predCount: 0,
   error: null,     // last load failure ("no model yet" is the normal case)
+  modelId: null,
+  modelName: '',
 };
 
 let tf = null;
 let model = null;
 let inputH = 0, inputW = 0;   // read off the loaded model, see loadPilotModel
 
-export async function loadPilotModel() {
+async function ensureTf() {
+  if (!tf) tf = await import('../vendor/tf.mjs');
+  try {
+    await tf.ready();
+  } catch {
+    // Some browsers expose a partial WebGPU API without an adapter. In that
+    // case tf.ready() can reject before it reaches its normal WebGL fallback.
+    // Eval is small enough to use WebGL or CPU as a reliable fallback.
+    try { await tf.setBackend('webgl'); } catch { await tf.setBackend('cpu'); }
+    await tf.ready();
+  }
+}
+
+const modelListeners = new Set();
+export function onPilotModelChange(fn) { modelListeners.add(fn); }
+function emitModelChange() { for (const fn of modelListeners) fn(pilot.modelId); }
+
+export async function getAvailableModels() {
+  await ensureTf();
+  await ensureModelMetadata(tf);
+  return listModels();
+}
+
+export async function loadPilotModel(requestedId) {
   if (pilot.loading) return pilot.ready;
   pilot.loading = true;
   try {
-    if (!tf) {
-      tf = await import('../vendor/tf.mjs');
-      await tf.ready();
-    }
-    const next = await tf.loadLayersModel('indexeddb://donkeyweb-model');
+    await ensureTf();
+    await ensureModelMetadata(tf);
+    const models = await listModels();
+    const storedActive = localStorage.getItem('donkeyweb-active-model');
+    // A first-run browser with one legacy model should keep that model as the
+    // active user model. Once a user explicitly chooses the built-in example,
+    // the persisted selection wins on subsequent reloads.
+    const implicitDefault = requestedId === undefined && !storedActive && models.length === 2
+      ? models.find(model => model.kind === 'user')?.id
+      : undefined;
+    const selected = await getModel(requestedId || implicitDefault || getActiveModelId()) || BUILTIN_MODEL;
+    if (!selected) throw new Error('model not found');
+    const next = selected.kind === 'builtin'
+      ? selected.installed
+        ? await tf.loadLayersModel(selected.url)
+        : buildBuiltinModel(tf, selected.profile)
+      : await tf.loadLayersModel(modelLoadUrl(selected));
     // The model states its own input size (the tiny profile trains at
     // 64x64, the donkeycar clone at 120x160), so inference reads it off the
     // loaded model rather than assuming the POV canvas's size. A model
@@ -42,6 +85,10 @@ export async function loadPilotModel() {
     model = next;
     pilot.ready = true;
     pilot.error = null;
+    pilot.modelId = selected.id;
+    pilot.modelName = selected.name;
+    if (requestedId !== undefined || selected.kind !== 'builtin') setActiveModelId(selected.id);
+    emitModelChange();
   } catch (err) {
     // Usually just "no model in IndexedDB yet" -- recorded quietly so the
     // UI can disable the button rather than spamming the console.
@@ -50,6 +97,25 @@ export async function loadPilotModel() {
     pilot.loading = false;
   }
   return pilot.ready;
+}
+
+// A deterministic website example: it holds a centered steering command and
+// a gentle throttle, enough to demonstrate the complete Eval loop without
+// creating a mutable IndexedDB model. The model architecture is the same as
+// user-trained models, so input sizing and prediction paths are exercised.
+function buildBuiltinModel(tf, profile) {
+  const next = buildModel(tf, profile);
+  for (const layer of next.layers) {
+    const weights = layer.getWeights();
+    if (!weights.length) continue;
+    const replacement = weights.map(weight => tf.zerosLike(weight));
+    layer.setWeights(replacement);
+    replacement.forEach(weight => weight.dispose());
+  }
+  const throttle = next.getLayer('n_outputs1');
+  const [kernel] = throttle.getWeights();
+  throttle.setWeights([kernel, tf.tensor1d([0.25])]);
+  return next;
 }
 
 // Same registration pattern as input.js's onReset, for the same reason:

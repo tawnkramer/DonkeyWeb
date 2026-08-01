@@ -2,32 +2,31 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupSimPage, waitFor } from './helpers.js';
 
-// M2 autopilot: model loading, mode switching, model-drives-the-car, and
-// the shadow needle. Tests save an UNTRAINED KerasLinear straight to
-// indexeddb://donkeyweb-model instead of training one -- what's under
-// test is the inference/control path, and a random-init model exercises
-// it in seconds instead of minutes. (Each test file gets a fresh
-// puppeteer profile, so IndexedDB is empty until we put that model there.)
+// Model loading, mode switching, model-drives-the-car, and the shadow needle.
+// Tests save an UNTRAINED KerasLinear straight to indexeddb://donkeyweb-model
+// instead of training one -- what's under test is the inference/control path,
+// and a random-init model exercises it in seconds instead of minutes.
 let page, teardown;
 
 before(async () => { ({ page, teardown } = await setupSimPage()); });
 after(() => teardown());
 
-test('without a trained model, autopilot stays unavailable', async () => {
-  // pilotui kicks off loadPilotModel() at startup; wait for that attempt
-  // to settle rather than asserting mid-load.
-  await waitFor(page, () => window.__sim.pilot && !window.__sim.pilot.loading, {
+test('a fresh session loads the immutable built-in example', async () => {
+  await waitFor(page, () => window.__sim.pilot && window.__sim.pilot.ready, {
     timeout: 60000,
-    message: 'initial loadPilotModel never settled',
+    message: 'built-in model never loaded',
   });
   const s = await page.evaluate(() => ({
     ready: __sim.pilot.ready,
-    active: __sim.setPilotActive(true), // must refuse with no model
+    modelId: __sim.pilot.modelId,
+    active: __sim.setPilotActive(true),
     btnDisabled: document.getElementById('pilotBtn').disabled,
   }));
-  assert.equal(s.ready, false);
-  assert.equal(s.active, false, 'setPilotActive(true) must be a no-op with no model loaded');
-  assert.equal(s.btnDisabled, true);
+  assert.equal(s.ready, true);
+  assert.equal(s.modelId, 'builtin-example');
+  assert.equal(s.active, true, 'the shipped example should be runnable immediately');
+  assert.equal(s.btnDisabled, false);
+  await page.evaluate(() => __sim.setPilotActive(false));
 });
 
 test('a saved model enables autopilot and its predictions drive the car', async () => {

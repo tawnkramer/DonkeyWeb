@@ -29,7 +29,10 @@ donkeycar, not just conceptually similar to one.
 - **Train**: one button trains the model in a background Web Worker (WebGPU
   -> WebGL -> CPU, whichever this browser supports) with a live per-batch
   loss chart, so the tab never freezes while it trains.
-- **Autopilot**: the trained model drives. A "shadow needle" overlay shows
+- **Models**: a built-in example is available immediately in Eval. User
+  models can be selected, exported from the hamburger menu, or imported from
+  TensorFlow.js `model.json` and weight files.
+- **Autopilot**: the selected model drives. A "shadow needle" overlay shows
   the model's opinion vs. your own steering even while you're still driving
   manually, so you can see how it's doing before trusting it with the wheel.
 
@@ -48,6 +51,20 @@ node test/serve.js        # or: ./scripts/serve.sh
 Then open the URL it prints (`http://localhost:8734` by default; set
 `PORT=xxxx` to use a different one). That's it -- just [Node.js](https://nodejs.org/)
 itself is required, nothing else.
+
+### Installing a trained model as the built-in example
+
+Export a model from the app as one ZIP file, then run:
+
+```bash
+npm run install-model -- ~/Downloads/my-model.zip "Track example"
+```
+
+The installer validates the ZIP's TensorFlow.js artifacts and installs them
+under `models/default/`. It also accepts a directory or standalone
+`model.json` for compatibility. Commit the generated files with the website
+deployment; new visitors will then receive that model as the read-only
+built-in Eval model. Existing user models remain separate.
 
 ### Hosting it on GitHub Pages
 
@@ -71,7 +88,7 @@ project-page subpath like the one above.
 | Scroll wheel / `W` `S` | Throttle up/down |
 | Arrow keys / `A` `D` | Snap steering full left/right (keyboard is on/off, not continuous) |
 | `R` | Reset to the start line |
-| `P` | Toggle autopilot (once a model has been trained) |
+| `P` | Toggle autopilot (once a model is loaded) |
 | Touch | On-screen d-pad appears automatically on touch devices |
 
 ## Development

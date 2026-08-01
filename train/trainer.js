@@ -28,6 +28,8 @@ export const training = {
   batchesPerSec: 0,
   quietFor: 0,       // seconds since the worker last said anything
   phase: '',         // what the worker is doing before the first batch lands
+  modelId: null,
+  modelUrl: null,
 };
 
 const listeners = new Set();
@@ -159,6 +161,7 @@ export function trainStart(opts = {}) {
     epoch: 0, epochsTotal: 0, nTrain: 0, nVal: 0,
     batchLosses: [], epochLog: [], valAccuracy: null, steeringSlice: null, elapsed: 0, stopped: false, error: null,
     batchesTotal: 0, batchesPerSec: 0, quietFor: 0, phase: '',
+    modelId: opts.modelId || null, modelUrl: opts.modelUrl || null,
   });
   recentBatchAt = [];
   lastMsgAt = performance.now();

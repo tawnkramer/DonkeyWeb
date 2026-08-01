@@ -8,6 +8,7 @@
   "scripts": {
     "serve": "node test/serve.js",
     "test": "bash scripts/test.sh",
+    "install-model": "node scripts/install-model.js",
     "vendor": "bash scripts/vendor.sh"
   },
   "devDependencies": {

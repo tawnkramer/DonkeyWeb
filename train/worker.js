@@ -6,7 +6,7 @@ import * as tf from '../vendor/tf.mjs';
 import { dbGetAll } from '../data/db.js';
 import { buildModel, PROFILES, DEFAULT_PROFILE } from './model.js';
 
-const MODEL_URL = 'indexeddb://donkeyweb-model';
+const LEGACY_MODEL_URL = 'indexeddb://donkeyweb-model';
 const C = 3;
 // Below ~50 frames (2.5s of driving) even a smoke-test train is
 // meaningless; refuse with a message the UI can show verbatim.
@@ -141,7 +141,7 @@ async function steeringSlice(model, records, indices) {
   return { targets: targetSteer, predictions: predictedSteer };
 }
 
-async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE }) {
+async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE, modelUrl = LEGACY_MODEL_URL }) {
   const t0 = performance.now();
   post({ type: 'status', phase: 'loading', detail: 'starting backend' });
   await chooseBackend();
@@ -201,7 +201,7 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
 
     // Saved even when stopped early -- the early-stop button means "good
     // enough, let me try it", not "throw it away".
-    await model.save(MODEL_URL);
+    await model.save(modelUrl);
   } finally {
     model.dispose();
   }

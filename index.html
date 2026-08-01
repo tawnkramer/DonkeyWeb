@@ -142,6 +142,22 @@
   #brand .word b{color:var(--cone);font-weight:700}
   #brand .sub{font-size:9px;color:var(--dim);letter-spacing:.14em;text-transform:uppercase;margin-top:1px}
   .navgroup{display:flex;gap:8px}
+  #modelMenuWrap{position:relative}
+  #modelMenuBtn{
+    width:38px;height:34px;padding:0;border-radius:6px;border:1px solid var(--panel-line);
+    background:transparent;color:var(--text);font-size:20px;line-height:1;cursor:pointer;
+  }
+  #modelMenuBtn span{display:block;width:16px;height:2px;margin:3px auto;background:currentColor;border-radius:2px}
+  #modelMenu{
+    position:absolute;right:0;top:42px;width:220px;padding:8px;display:none;gap:6px;flex-direction:column;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
+    box-shadow:0 8px 24px rgba(0,0,0,.35);backdrop-filter:blur(8px);
+  }
+  #modelMenu.open{display:flex}
+  #modelMenu button{padding:10px;text-align:left;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text);font:11px 'IBM Plex Mono',monospace;cursor:pointer}
+  #modelMenu button:hover,#modelMenu button:focus{background:rgba(255,255,255,.1);border-color:var(--panel-line)}
+  #modelMenuStatus{padding:3px 10px;color:var(--dim);font-size:10px;line-height:1.4}
+  #modelFileInput{display:none}
   .navbtn{
     padding:8px 16px;border-radius:6px;border:1px solid var(--panel-line);
     background:transparent;color:var(--dim);
@@ -188,6 +204,13 @@
     padding:12px;backdrop-filter:blur(6px);box-sizing:border-box;
   }
   #evalEmpty{color:var(--dim);font-size:11px;margin-bottom:8px;line-height:1.5}
+  #modelSelect{
+    width:100%;margin-bottom:10px;padding:9px 10px;border-radius:6px;
+    background:rgba(0,0,0,.3);color:var(--text);border:1px solid var(--panel-line);
+    font-family:'IBM Plex Mono',monospace;font-size:11px;
+  }
+  #modelSelect:disabled{opacity:.5}
+  #modelStatus{min-height:15px;margin:-2px 0 8px;color:var(--dim);font-size:10px;line-height:1.4}
   #pilotBtn{
     width:100%;padding:10px 0;border-radius:6px;
     border:1px solid var(--panel-line);background:transparent;color:var(--text);
@@ -349,6 +372,9 @@
     #brand .word{font-size:15px}
     #brand .sub{font-size:8px}
     .navbtn{padding:6px 10px;font-size:10px}
+    #navbar{gap:7px}
+    .navgroup{gap:4px}
+    #modelMenu{position:fixed;top:58px;right:10px;width:min(260px,calc(100vw - 20px))}
     #povframe{width:160px}
     #pov{width:146px;height:110px}
     /* telem moves below the POV panel instead of sharing its row -- at
@@ -363,6 +389,14 @@
     #hint{top:300px}
     #screenData, #screenTrain{padding:18px}
     #dHist{height:80px}
+  }
+  @media (max-width:420px){
+    #navbar{padding:0 6px;gap:4px}
+    #brand .sub{display:none}
+    #brand .word{font-size:14px}
+    .navgroup{gap:2px;min-width:0;flex:1;justify-content:flex-end}
+    .navbtn{flex:1;min-width:0;padding:6px 4px;font-size:9px;letter-spacing:.02em}
+    #modelMenuBtn{flex:0 0 34px;width:34px}
   }
   /* Landscape phones: wide enough to skip the width breakpoint above, but
      only ~390px tall, so vertical space is the scarce axis. Everything
@@ -411,6 +445,15 @@
     <button class="navbtn" data-mode="data">Data</button>
     <button class="navbtn" data-mode="train">Train</button>
     <button class="navbtn" data-mode="eval">Eval</button>
+    <div id="modelMenuWrap">
+      <button id="modelMenuBtn" aria-label="Models menu" aria-expanded="false"><span></span><span></span><span></span></button>
+      <div id="modelMenu" role="menu">
+        <button id="loadModelBtn" role="menuitem">load model</button>
+        <button id="saveModelBtn" role="menuitem">save current model</button>
+        <div id="modelMenuStatus" aria-live="polite"></div>
+      </div>
+      <input id="modelFileInput" type="file" accept=".zip,.json,.bin,application/zip,application/json,application/octet-stream" multiple>
+    </div>
   </div>
 </div>
 
@@ -422,7 +465,9 @@
 </div>
 
 <div class="hud" id="evalPanel">
-  <div id="evalEmpty">Train a model in the Train tab first.</div>
+  <div id="evalEmpty">Choose a model to evaluate.</div>
+  <select id="modelSelect" aria-label="Evaluation model"></select>
+  <div id="modelStatus" aria-live="polite"></div>
   <button id="pilotBtn" disabled title="train a model first">autopilot</button>
 </div>
 
