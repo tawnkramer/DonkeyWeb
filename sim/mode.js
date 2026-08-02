@@ -4,7 +4,7 @@
 // element JS toggles -- same push-subscription shape as train/trainer.js's
 // onTraining, for the same reason (a handful of unrelated modules each want
 // to react to a mode change without polling).
-const MODES = ['drive', 'data', 'train', 'eval'];
+const MODES = ['drive', 'data', 'train', 'eval', 'recover'];
 let current = document.body.dataset.mode || 'drive';
 
 const listeners = new Set();

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { scene } from './scene.js';
-import { SAMPLES, TRACK_W, START_IDX, centers, tangents } from './track.js';
+import { SAMPLES, TRACK_W, START_IDX, centers, tangents, normalAt } from './track.js';
 import { input } from './input.js';
 import { tubTrimLastSeconds } from '../data/tub.js';
 import { pilot } from '../train/autopilot.js';
@@ -95,6 +95,32 @@ export const DT = 1/50;
 export let cte = 0, offTrack = false, throttleVis = 0, simTime = 0;
 let wasOffTrack = false;
 
+// Teleports the car to an arbitrary pose relative to track sample `idx` --
+// unlike resetCar() (which always snaps onto the centerline), this can
+// place it off-line and facing any direction on purpose. Used by
+// recovery.js to spawn poses a human driver wouldn't produce on their own,
+// then let a recovery controller correct back onto the track.
+export function placeCarAt(idx, lateralOffset, headingOffset) {
+  const c = centers[idx], t = tangents[idx], n = normalAt(idx);
+  V.x = c.x + n.x * lateralOffset;
+  V.z = c.z + n.z * lateralOffset;
+  V.heading = Math.atan2(t.x, t.z) + headingOffset;
+  V.speed = 0;
+  V.steer = 0;
+  nearestIdx = idx;
+  cte = Math.abs(lateralOffset);
+  offTrack = cte > TRACK_W / 2 + 0.15;
+  wasOffTrack = offTrack;
+}
+
+// Lets recovery.js suspend the off-track auto-reset below for the
+// duration of its episodes -- that mode drives off-track on purpose, and
+// the auto-reset would otherwise snap the car back before its own
+// recovery controller got a chance to correct it. Restored once recovery
+// mode stops (see recovery.js).
+export let autoResetOnOffTrack = true;
+export function setAutoResetOnOffTrack(v) { autoResetOnOffTrack = v; }
+
 export function step(dt) {
   // steering: rate-limited toward target, washed out with speed
   const target = input.steer * V.MAX_STEER;
@@ -134,7 +160,7 @@ export function step(dt) {
   // bad training data, so drop the last few seconds, put the car back on
   // the line, and zero the throttle so it doesn't immediately drive off
   // again.
-  if (offTrack && !wasOffTrack) {
+  if (offTrack && !wasOffTrack && autoResetOnOffTrack) {
     // No trim during autopilot: those laps were never recorded, so the
     // trim would eat the tail of the user's manual data instead. The
     // reset still applies -- the model gets put back on the line to try

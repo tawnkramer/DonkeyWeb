@@ -171,12 +171,13 @@
      opaque panels that COVER it instead. Hiding it would zero out its
      box, and resize() sizes the camera from that box -- so a resize
      while parked on a non-driving tab would poison the aspect ratio. */
-  #povwrap, #telem, #hint, #evalPanel{ display:none; }
+  #povwrap, #telem, #hint, #evalPanel, #recoverPanel{ display:none; }
   #touch{ display:none; }
-  body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap{ display:block; }
-  body[data-mode="drive"] #telem, body[data-mode="eval"] #telem{ display:flex; }
+  body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap, body[data-mode="recover"] #povwrap{ display:block; }
+  body[data-mode="drive"] #telem, body[data-mode="eval"] #telem, body[data-mode="recover"] #telem{ display:flex; }
   body[data-mode="drive"] #hint{ display:block; }
   body[data-mode="eval"] #evalPanel{ display:block; }
+  body[data-mode="recover"] #recoverPanel{ display:block; }
   @media (pointer:coarse){ body[data-mode="drive"] #touch{ display:flex; } }
 
   /* signature: the raw model-input feed */
@@ -220,6 +221,33 @@
   #pilotBtn.on{background:var(--lane);border-color:var(--lane);color:#1b1408}
   #pilotBtn:disabled{opacity:.4;cursor:default}
 
+  /* recover: automatic recovery-dataset generator, same slot/shape as
+     #evalPanel (the two modes never show at once, so reusing the layout
+     keeps the chrome predictable) */
+  #recoverPanel{
+    top:277px;right:16px;width:240px;text-align:center;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
+    padding:12px;backdrop-filter:blur(6px);box-sizing:border-box;
+  }
+  #recoverEmpty{color:var(--dim);font-size:11px;margin-bottom:8px;line-height:1.5}
+  /* :not([hidden]) rather than a plain #recoverStats{display:grid} rule --
+     an author display declaration on the element itself would beat the
+     UA stylesheet's [hidden]{display:none} regardless of specificity
+     (origin order, not specificity, decides that contest), which would
+     make the grid ignore the hidden attribute entirely. */
+  #recoverStats:not([hidden]){display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  #recoverStats .rstat{padding:7px 8px;background:rgba(0,0,0,.2);border:1px solid var(--panel-line);border-radius:5px;text-align:left}
+  #recoverStats .rstat span{display:block}
+  #recoverStats .rstat-label{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:2px}
+  #recoverStats .rstat-value{font-family:'Chakra Petch';font-weight:600;font-size:14px}
+  #recoverBtn{
+    width:100%;padding:10px 0;border-radius:6px;
+    border:1px solid var(--panel-line);background:transparent;color:var(--text);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:13px;
+    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
+  }
+  #recoverBtn.on{background:var(--cone);border-color:var(--cone);color:#1b1408}
+
   /* ---------- full-screen tabs: Data / Train ---------- */
   #screenData, #screenTrain{
     display:none; position:fixed; top:52px; left:0; right:0; bottom:0; z-index:20;
@@ -238,7 +266,7 @@
     max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
 
-  #dataEmpty, #evalPanel #evalEmpty{color:var(--dim);font-size:13px;text-align:center}
+  #dataEmpty, #evalPanel #evalEmpty, #recoverPanel #recoverEmpty{color:var(--dim);font-size:13px;text-align:center}
   #dataEmpty{margin-top:15vh}
   #dataContent{max-width:640px;margin:0 auto}
   #dHist{position:relative;height:120px;display:flex;align-items:flex-end;gap:4px;margin-bottom:20px}
@@ -386,6 +414,7 @@
     .t-item{min-width:44px}
     #steerbar{width:70px}.bar{width:56px}
     #evalPanel{width:160px;top:293px}
+    #recoverPanel{width:160px;top:293px}
     #hint{top:300px}
     #screenData, #screenTrain{padding:18px}
     #dHist{height:80px}
@@ -423,10 +452,10 @@
      is why the telemetry strip carries its own recording indicator here.
      Comes after both breakpoints above so its telem/eval offsets win. */
   @media (pointer:coarse){
-    body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap{ display:none; }
+    body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap, body[data-mode="recover"] #povwrap{ display:none; }
     #telemRec{display:inline-block}
     #telem{top:66px}
-    #evalPanel{top:auto;bottom:18px;right:16px}
+    #evalPanel, #recoverPanel{top:auto;bottom:18px;right:16px}
     #hint{top:150px}
     body[data-mode="eval"] #evalPanel.running{display:none}
   }
@@ -446,6 +475,7 @@
     <button class="navbtn" data-mode="data">Data</button>
     <button class="navbtn" data-mode="train">Train</button>
     <button class="navbtn" data-mode="eval">Eval</button>
+    <button class="navbtn" data-mode="recover">Recover</button>
     <div id="modelMenuWrap">
       <button id="modelMenuBtn" aria-label="Models menu" aria-expanded="false"><span></span><span></span><span></span></button>
       <div id="modelMenu" role="menu">
@@ -471,6 +501,17 @@
   <select id="modelSelect" aria-label="Evaluation model"></select>
   <div id="modelStatus" aria-live="polite"></div>
   <button id="pilotBtn" disabled title="train a model first">autopilot</button>
+</div>
+
+<div class="hud" id="recoverPanel">
+  <div id="recoverEmpty">Automatically teleports the car off-line and drives it back, recording only the correction — builds a recovery dataset without you having to crash it on purpose.</div>
+  <div id="recoverStats" hidden>
+    <div class="rstat"><span class="rstat-label">Episodes</span><span class="rstat-value" id="recEpisodes">0</span></div>
+    <div class="rstat"><span class="rstat-label">Recovered</span><span class="rstat-value" id="recSuccesses">0</span></div>
+    <div class="rstat"><span class="rstat-label">Frames</span><span class="rstat-value" id="recFrames">0</span></div>
+    <div class="rstat"><span class="rstat-label">Phase</span><span class="rstat-value" id="recPhase">–</span></div>
+  </div>
+  <button id="recoverBtn">start recovery generation</button>
 </div>
 
 <div class="hud" id="screenData">

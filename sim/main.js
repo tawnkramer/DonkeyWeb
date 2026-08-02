@@ -9,12 +9,14 @@ import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
 import { pilot, pilotPredict, setPilotActive, loadPilotModel, getAvailableModels, onPilotDeactivate } from '../train/autopilot.js';
+import { recovery, startRecovery, stopRecovery, stepRecovery, onRecoveryDeactivate } from './recovery.js';
 import { getMode, setMode, onModeChange } from './mode.js';
 import './navui.js';
 import './modelui.js';
 import './joystick.js';
 import './trainui.js';
 import { drawPilot } from './pilotui.js';
+import { drawRecover } from './recoverui.js';
 import { drawDataset, syncDataAvailability } from './datasetui.js';
 
 // A reset means "back on the line, standing still": killing the throttle
@@ -27,15 +29,18 @@ function resetToLine() {
 }
 onReset(resetToLine);
 onPilotDeactivate(resetToLine);
+onRecoveryDeactivate(resetToLine);
 
 // Leaving both driving screens (Drive/Eval) while autopilot is engaged
 // auto-stops it -- otherwise it'd keep "driving" in the background on a
 // frozen last prediction indefinitely. Reuses the existing
 // onPilotDeactivate -> resetToLine() hook above; switching directly
 // between Drive and Eval does NOT trigger this, both are the same
-// continuous driving context.
+// continuous driving context. Leaving Recover stops the generator the
+// same way, via onRecoveryDeactivate -> resetToLine() above.
 onModeChange(next => {
   if (next !== 'drive' && next !== 'eval' && pilot.active) setPilotActive(false);
+  if (next !== 'recover' && recovery.active) stopRecovery();
 });
 
 // Not awaited: the sim starts driving immediately (recording just stays
@@ -52,7 +57,7 @@ loadTub();
 window.__sim = {
   input, V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
-  getAvailableModels,
+  getAvailableModels, recovery, startRecovery, stopRecovery,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
@@ -131,6 +136,10 @@ function frame(now) {
   if (pilot.active) {
     input.steer = pilot.steer;
     input.throttle = pilot.throttle;
+  } else if (recovery.active) {
+    stepRecovery(dt);
+    input.steer = recovery.steer;
+    input.throttle = recovery.throttle;
   }
 
   acc += dt;
@@ -147,23 +156,25 @@ function frame(now) {
                dt);
 
   // Stationary means the car's own state stopped changing this tick;
-  // autopilot always counts as active regardless of its current speed,
-  // since it needs a continuous, fresh camera feed to keep perceiving.
-  const stationary = V.speed === 0 && !pilot.active;
+  // autopilot and recovery generation always count as active regardless
+  // of current speed, since both need a continuous, fresh camera feed to
+  // keep perceiving (recovery episodes also start from V.speed === 0, at
+  // the instant of a teleport).
+  const stationary = V.speed === 0 && !pilot.active && !recovery.active;
   idleDt = stationary ? idleDt + dt : 0;
   const idle = idleDt > IDLE_SETTLE_S;
 
   // The 3D view/POV feed and the 20Hz predict/record tick only matter on
-  // the two driving screens (Drive, Eval) -- Data/Train are full-screen,
-  // non-3D dashboards. Gating this is not just a CPU optimization like the
-  // idle-skip above: scroll-wheel throttle holds indefinitely once set
-  // (unlike keys), so without this gate, leaving throttle nonzero and
-  // switching to Data/Train would silently keep recording frames against a
-  // frozen, stale POV image (tubPush reads whatever's currently in the
-  // #pov canvas) and keep burning a TF.js forward pass every 50ms for
-  // nothing.
+  // the driving screens (Drive, Eval, Recover) -- Data/Train are
+  // full-screen, non-3D dashboards. Gating this is not just a CPU
+  // optimization like the idle-skip above: scroll-wheel throttle holds
+  // indefinitely once set (unlike keys), so without this gate, leaving
+  // throttle nonzero and switching to Data/Train would silently keep
+  // recording frames against a frozen, stale POV image (tubPush reads
+  // whatever's currently in the #pov canvas) and keep burning a TF.js
+  // forward pass every 50ms for nothing.
   const mode = getMode();
-  const isDrivingScreen = mode === 'drive' || mode === 'eval';
+  const isDrivingScreen = mode === 'drive' || mode === 'eval' || mode === 'recover';
 
   // isGLAvailable: a context the browser takes away (backgrounding on iOS
   // is enough) comes back asynchronously, so frames can land while it is
@@ -189,11 +200,15 @@ function frame(now) {
   }
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
-  // as physics -- only while the USER is driving forward on the track, in
-  // Drive mode specifically (autopilot laps -- Eval -- are the model's own
-  // output; feeding them back in as training data would just amplify its
-  // own mistakes)
-  const isRecording = mode === 'drive' && !pilot.active && input.throttle > 0 && !offTrack;
+  // as physics. In Drive mode, only while the USER is driving forward and
+  // on-track (autopilot laps -- Eval -- are the model's own output;
+  // feeding them back in as training data would just amplify its own
+  // mistakes). In Recover mode, for the whole recovery episode, on-track
+  // or not -- going off-track there is the deliberately-induced starting
+  // pose, not a mistake to gate out (see recovery.js).
+  const isRecording = mode === 'drive'
+    ? (!pilot.active && input.throttle > 0 && !offTrack)
+    : (mode === 'recover' && recovery.active);
   recAcc += dt;
   if (recAcc >= REC_DT) {
     recAcc -= REC_DT;
@@ -212,6 +227,7 @@ function frame(now) {
   drawDataset(isRecording);
   syncDataAvailability();
   drawPilot();
+  drawRecover();
   setFps(fpsA, idle);
 }
 
