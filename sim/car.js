@@ -3,7 +3,8 @@ import { scene } from './scene.js';
 // Read through `road` rather than destructuring: it's mutated in place on a
 // world switch, so pulling `centers`/`width` out into locals here would
 // pin this module to whichever world happened to load first.
-import { road } from './world.js';
+import { road, collision } from './world.js';
+import { hitTest } from './collide.js';
 import { input } from './input.js';
 import { tubTrimLastSeconds } from '../data/tub.js';
 import { pilot } from '../train/autopilot.js';
@@ -98,6 +99,30 @@ function placeAtSample(idx) {
   offTrack = false;
   wasOffTrack = false;
   poseVersion++;
+  histClear();
+}
+
+// Puts the car back where it was REWIND_S ago and stops it there. Used by
+// collision worlds instead of snapping to the centreline.
+//
+// Returns false when there's no history to rewind into (a collision inside
+// the first few seconds of a run), so the caller can fall back.
+export function rewindCar() {
+  const h = histOldest();
+  if (!h) return false;
+  V.x = h.x; V.z = h.z;
+  V.heading = h.heading;
+  V.steer = h.steer;
+  V.speed = 0;              // rewound, not resumed -- you restart the approach
+  nearestIdx = h.nearestIdx;
+  cte = 0;
+  offTrack = false;
+  wasOffTrack = false;
+  poseVersion++;
+  // Without this a second collision could rewind to a pose from before the
+  // first one, walking the car backwards through the run.
+  histClear();
+  return true;
 }
 
 export function resetCar() {
@@ -125,16 +150,50 @@ export const DT = 1/50;
 export let cte = 0, offTrack = false, throttleVis = 0, simTime = 0;
 let wasOffTrack = false;
 
-// Initial pose. Deliberately down here rather than up beside the V
-// declaration: resetCarToStart() writes cte/offTrack/wasOffTrack, which
-// are `let` bindings declared just above -- calling it any earlier in the
-// module body hits their temporal dead zone.
-resetCarToStart();
-
 // How far past the road edge counts as off. A margin, not a half-width, so
 // it scales with whatever road is live.
 const OFF_TRACK_MARGIN = 0.15;
 function offTrackLimit() { return road.width / 2 + OFF_TRACK_MARGIN; }
+
+// ---------- rewind history ----------
+// Collision worlds don't snap the car back to the centreline -- on a city
+// street there isn't an obviously right line to snap to, and teleporting
+// across a junction is a worse discontinuity than the crash was. Instead
+// the car is rewound to where it was REWIND_S ago, which is a pose it
+// actually drove through, and the same REWIND_S of frames is dropped from
+// the tub for the reason the off-track path drops them: the run-up to a
+// crash is a demonstration of how to crash.
+export const REWIND_S = 3;
+const HIST_LEN = Math.round(REWIND_S / DT) + 1;
+// Preallocated ring: this is written every physics tick, so it must not
+// allocate.
+const hist = Array.from({ length: HIST_LEN }, () => ({
+  x: 0, z: 0, heading: 0, speed: 0, steer: 0, nearestIdx: 0,
+}));
+let histHead = -1, histCount = 0;
+
+function histPush() {
+  histHead = (histHead + 1) % HIST_LEN;
+  const h = hist[histHead];
+  h.x = V.x; h.z = V.z; h.heading = V.heading;
+  h.speed = V.speed; h.steer = V.steer; h.nearestIdx = nearestIdx;
+  if (histCount < HIST_LEN) histCount++;
+}
+
+function histClear() { histHead = -1; histCount = 0; }
+
+// The oldest pose still held, i.e. REWIND_S ago once the ring is full and
+// the start of the run before that.
+function histOldest() {
+  if (histCount === 0) return null;
+  return hist[(histHead - histCount + 1 + HIST_LEN) % HIST_LEN];
+}
+
+// Initial pose. Deliberately down here rather than up beside the V
+// declaration: resetCarToStart() writes cte/offTrack/wasOffTrack and
+// clears the rewind ring, all of which are declared above -- calling it
+// any earlier in the module body hits their temporal dead zone.
+resetCarToStart();
 
 // Teleports the car to an arbitrary pose relative to track sample `idx` --
 // unlike resetCar() (which always snaps onto the centerline), this can
@@ -153,6 +212,13 @@ export function placeCarAt(idx, lateralOffset, headingOffset) {
   offTrack = cte > offTrackLimit();
   wasOffTrack = offTrack;
   poseVersion++;
+  // Every deliberate relocation invalidates the rewind ring -- the poses
+  // in it were driven somewhere else. Without this, a collision shortly
+  // after a teleport rewinds to a pose from before it and flings the car
+  // across the map (recovery.js teleports constantly, so this is not a
+  // corner case). The invariant to hold: anything that bumps poseVersion
+  // clears the history.
+  histClear();
 }
 
 // Lets recovery.js suspend the off-track auto-reset below for the
@@ -196,6 +262,24 @@ export function step(dt) {
   offTrack = dist > offTrackLimit();
   simTime += dt;
 
+  // Collision worlds (the city): the roadway is somewhere to move around
+  // in, so wandering off the centreline is not a failure -- hitting
+  // something is. Checked before the off-track rule below, which those
+  // worlds switch off entirely.
+  if (collision.enabled) {
+    if (autoResetOnOffTrack && hitTest(collision.list, V.x, V.z)) {
+      if (!pilot.active) tubTrimLastSeconds(REWIND_S, simTime);
+      // Nothing to rewind into within the first few seconds of a run;
+      // fall back to the centreline so a crash can't leave the car
+      // parked inside a wall.
+      if (!rewindCar()) resetCar();
+      input.throttle = 0;
+    }
+    histPush();
+    wasOffTrack = offTrack;
+    return;
+  }
+
   // Going off-track ends the recording (the gating in the record loop
   // already stops capturing new frames once offTrack is true), but the
   // run of frames leading up to it -- the mistake that caused it -- is
@@ -215,4 +299,5 @@ export function step(dt) {
     offTrack = false;
   }
   wasOffTrack = offTrack;
+  histPush();
 }

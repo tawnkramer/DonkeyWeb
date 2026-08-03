@@ -263,6 +263,28 @@
   }
   #recoverBtn.on{background:var(--cone);border-color:var(--cone);color:#1b1408}
 
+  /* Stop-recording button. Only present while a take is actually being
+     recorded -- the session now runs through stops (waiting at a red
+     light is data), so there has to be a way to end one deliberately
+     instead of waiting out the idle timeout. `display:none` by default;
+     sim/recordui.js adds .on for exactly as long as frames are landing. */
+  #stopRecBtn{
+    display:none;
+    /* right column, tucked under the cam preview. Drive mode is the only
+       mode this appears in, so it cannot collide with the eval/recover
+       panels that share this slot. */
+    right:16px;top:277px;
+    align-items:center;justify-content:center;gap:8px;width:240px;box-sizing:border-box;
+    padding:8px 16px;border-radius:8px;
+    border:1px solid var(--cone);background:var(--panel);color:var(--cone);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:12px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+    backdrop-filter:blur(6px);white-space:nowrap;
+  }
+  #stopRecBtn.on{display:flex}
+  #stopRecBtn::before{content:'■';font-size:10px}
+  #stopRecBtn:hover,#stopRecBtn:focus{background:var(--cone);color:#1b1408}
+
   /* ---------- full-screen tabs: Data / Train ---------- */
   #screenData, #screenTrain{
     display:none; position:fixed; top:52px; left:0; right:0; bottom:0; z-index:20;
@@ -440,6 +462,9 @@
        the screen or overlaps the panel, tried both, see commit history).
        Narrower gaps/bars/min-widths so the strip fits on its own too. */
     #telem{top:228px;gap:8px;padding:6px 10px}
+    /* matches the narrower right column here, below the telemetry strip
+       which has moved down to 228px */
+    #stopRecBtn{width:160px;top:293px}
     .t-item{min-width:44px}
     #steerbar{width:70px}.bar{width:56px}
     #evalPanel{width:160px;top:293px}
@@ -490,6 +515,10 @@
        (120px + the 18px screen-edge padding), and left to wrap rather
        than run a long pad name off the side of a phone. */
     #padToast{bottom:170px;white-space:normal;max-width:min(340px,86vw)}
+    /* the cam preview is hidden here, so the right column is empty from
+       the strip (back at 66px) down -- a thumb reaches this without
+       covering the road */
+    #stopRecBtn{top:128px;width:auto}
     body[data-mode="eval"] #evalPanel.running{display:none}
   }
   /* Landscape phone: ~390px of height, and the hint block runs from 150px
@@ -629,6 +658,8 @@
 </div>
 
 <div class="hud gone" id="padToast"></div>
+
+<button class="hud" id="stopRecBtn" type="button">stop recording</button>
 
 <div class="hud" id="telem">
   <span class="rec" id="telemRec" title="recording"></span>

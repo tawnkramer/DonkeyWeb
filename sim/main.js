@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H,
          isGLAvailable } from './scene.js';
-import { road, setWorld, listWorlds, getWorldId, onWorldChange } from './world.js';
-import { car, V, step, DT, resetCar, resetCarToStart, offTrack, simTime, cte, poseVersion } from './car.js';
+import { road, collision, setWorld, listWorlds, getWorldId, onWorldChange, stepWorld, featureStates } from './world.js';
+import { hitTest } from './collide.js';
+import { car, V, step, DT, resetCar, resetCarToStart, placeCarAt, offTrack, simTime, cte, poseVersion } from './car.js';
 import { input, source, onReset } from './input.js';
 import { gamepad, pollGamepads } from './gamepad.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
@@ -19,6 +20,7 @@ import './trainui.js';
 import { drawPilot } from './pilotui.js';
 import { drawRecover } from './recoverui.js';
 import { drawDataset, syncDataAvailability } from './datasetui.js';
+import { drawRecordButton, onStopRecording } from './recordui.js';
 
 // A reset means "back on the line, standing still": killing the throttle
 // belongs with it, or the car immediately drives off again on whatever
@@ -31,6 +33,7 @@ function resetToLine() {
 onReset(resetToLine);
 onPilotDeactivate(resetToLine);
 onRecoveryDeactivate(resetToLine);
+onStopRecording(() => stopSession());
 
 // Leaving both driving screens (Drive/Eval) while autopilot is engaged
 // auto-stops it -- otherwise it'd keep "driving" in the background on a
@@ -79,7 +82,14 @@ window.__sim = {
   V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
   getAvailableModels, recovery, startRecovery, stopRecovery,
-  road, setWorld, listWorlds, getWorldId,
+  road, setWorld, listWorlds, getWorldId, featureStates,
+  // Writing V.x/V.z from the console looks like it should work and does
+  // not: nearestIdx only ever moves by a local search, so a hand-written
+  // teleport leaves it stale, the cross-track error reads as enormous and
+  // the off-track auto-reset immediately undoes the move. Go through this.
+  placeCarAt, resetCarToStart, collision, hitTest,
+  stopSession,
+  get sessionOpen() { return sessionOpen; },
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
@@ -133,6 +143,61 @@ let seenPoseVersion = poseVersion;
 const REC_DT = 1/20;
 let recAcc = 0;
 
+// ---------- driving sessions (what counts as recordable) ----------
+// This used to be a flat `input.throttle > 0`, which cannot record a stop.
+// Every frame where the driver lifts off or holds still is dropped, so the
+// tub ends up containing no example of throttle <= 0 anywhere -- and a
+// behaviour-cloned model that has never seen a zero-throttle label has no
+// way to produce one. It structurally cannot learn to stop, which is
+// exactly the behaviour the city world's traffic lights exist to teach.
+//
+// So a session opens the moment the user drives and stays open through
+// lifting off, braking, and sitting at a red -- all of which are the
+// lesson, not gaps in it. SESSION_IDLE_S is what keeps a car parked and
+// forgotten from flooding the tub with thousands of identical frames: the
+// wait at a signal gets recorded, an abandoned session does not. Pulling
+// away reopens the session on the first throttle input, so the green-light
+// launch is captured from its first frame.
+const SESSION_IDLE_S = 4;
+let sessionOpen = false, sessionIdleDt = 0;
+// Set by the stop-recording button. Without it the button would do
+// nothing whenever the throttle is still held: updateSession() would just
+// reopen the session on the very next frame. Cleared as soon as the
+// driver lifts off, so the next pull-away starts a fresh take.
+let sessionSuppressed = false;
+
+function stopSession() {
+  sessionOpen = false;
+  sessionIdleDt = 0;
+  sessionSuppressed = true;
+}
+
+function updateSession(dt, mode) {
+  // Only manual driving in Drive mode is a session at all -- autopilot is
+  // the model's own output, and the other screens aren't driving.
+  if (mode !== 'drive' || pilot.active) {
+    sessionOpen = false;
+    sessionIdleDt = 0;
+    sessionSuppressed = false;
+    return;
+  }
+  if (input.throttle > 0) {
+    if (!sessionSuppressed) {
+      sessionOpen = true;
+      sessionIdleDt = 0;
+    }
+    return;
+  }
+  // Off the throttle: re-arm, so a stopped take can be started again by
+  // simply driving off.
+  sessionSuppressed = false;
+  if (!sessionOpen) return;
+  // Coasting and braking keep the session alive; only a car that is both
+  // stopped and off the throttle ages toward closing it.
+  sessionIdleDt = V.speed === 0 ? sessionIdleDt + dt : 0;
+  if (sessionIdleDt >= SESSION_IDLE_S) sessionOpen = false;
+}
+
 // Rendering -- the main view, the separate offscreen POV render, and its
 // GPU->CPU pixel readback (a hard sync point) -- is by far the most
 // expensive part of each tick, and pilotPredict is a real TF.js forward
@@ -168,6 +233,13 @@ function frame(now) {
   // below for the same reason the mouse does: while a model is driving,
   // nothing the human touches should reach the car.
   pollGamepads();
+
+  // Animated world features (traffic light phases) run every frame,
+  // independent of the render skip below -- a light has to keep cycling
+  // while you sit at it, which is the whole point of sitting at it. It
+  // reports back when a phase actually flips so the renderer can wake for
+  // that frame without giving up the idle skip the rest of the time.
+  if (stepWorld(dt)) wakeRender();
 
   // In autopilot the model's latest prediction overwrites input right
   // before physics, so stray mouse/key events between frames never steer
@@ -250,14 +322,15 @@ function frame(now) {
   }
 
   // record at 20 Hz, independent of render rate, same fixed-step pattern
-  // as physics. In Drive mode, only while the USER is driving forward and
+  // as physics. In Drive mode, for the whole of a DRIVING SESSION and
   // on-track (autopilot laps -- Eval -- are the model's own output;
   // feeding them back in as training data would just amplify its own
   // mistakes). In Recover mode, for the whole recovery episode, on-track
   // or not -- going off-track there is the deliberately-induced starting
   // pose, not a mistake to gate out (see recovery.js).
+  updateSession(dt, mode);
   const isRecording = mode === 'drive'
-    ? (!pilot.active && input.throttle > 0 && !offTrack)
+    ? (sessionOpen && !offTrack)
     : (mode === 'recover' && recovery.active);
   recAcc += dt;
   if (recAcc >= REC_DT) {
@@ -275,6 +348,11 @@ function frame(now) {
 
   drawHud();
   drawDataset(isRecording);
+  // Drive only: isRecording is also true throughout a recovery-generation
+  // episode, but stopSession() governs manual driving sessions and would
+  // do nothing there -- a visible button that ignores clicks is worse than
+  // no button. Recover mode has its own stop control in its panel.
+  drawRecordButton(isRecording && mode === 'drive');
   syncDataAvailability();
   drawPilot();
   drawRecover();

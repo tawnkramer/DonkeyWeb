@@ -61,7 +61,13 @@ export function buildRoad(spec) {
   // edges fold back across themselves (self-intersecting geometry). Scale
   // the lateral offset down wherever the local radius gets tight so the
   // ribbon never crosses its own centerline.
-  const MAX_OFFSET = width / 2 + 0.05;
+  //
+  // Measured against the OUTERMOST ribbon, not the road edge: a sidewalk
+  // sits further out than the asphalt does, so taking the road's own
+  // half-width here would let the kerb fold on corners the road itself
+  // survives.
+  const sidewalk = spec.sidewalk ? { width: 2.4, height: 0.14, color: 0x8d8f8a, ...spec.sidewalk } : null;
+  const MAX_OFFSET = width / 2 + 0.05 + (sidewalk ? sidewalk.width : 0);
   const widthScale = new Array(SAMPLES);
   for (let i = 0; i < SAMPLES; i++) {
     const p = (i - 1 + SAMPLES) % SAMPLES, n2 = (i + 1) % SAMPLES;
@@ -100,6 +106,16 @@ export function buildRoad(spec) {
   group.add(ribbon(-width/2, width/2, 0.02, colors.asphalt));            // asphalt
   group.add(ribbon( width/2-0.28,  width/2+0.05, 0.045, colors.edge));   // white edges
   group.add(ribbon(-width/2-0.05, -width/2+0.28, 0.045, colors.edge));
+
+  // Raised kerbs either side, for worlds that want a street rather than a
+  // road. Flat ribbons at a height, not extruded kerbs: from the POV
+  // camera's eye line the step reads fine, and it keeps this to two more
+  // strips of the geometry that already works.
+  if (sidewalk) {
+    const inner = width/2 + 0.05, outer = inner + sidewalk.width;
+    group.add(ribbon(inner, outer, sidewalk.height, sidewalk.color));
+    group.add(ribbon(-outer, -inner, sidewalk.height, sidewalk.color));
+  }
 
   // dashed center line
   {
