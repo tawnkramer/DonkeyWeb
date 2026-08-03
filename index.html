@@ -288,6 +288,13 @@
     letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
   }
   #deDeleteBtn:disabled{opacity:.4;cursor:default}
+  #dataActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:640px;margin:0 auto 14px}
+  #dataActions button{font:11px 'IBM Plex Mono',monospace;color:var(--text);background:rgba(255,255,255,.08);border:1px solid var(--panel-line);border-radius:5px;padding:8px 10px;cursor:pointer}
+  #dataActions button:hover{background:rgba(255,255,255,.14)}
+  #dataActions button:disabled{opacity:.4;cursor:default}
+  #dataLoadModeLabel{font-size:10px;color:var(--dim);display:flex;align-items:center;gap:5px}
+  #dataLoadMode{font:10px 'IBM Plex Mono',monospace;color:var(--text);background:rgba(255,255,255,.08);border:1px solid var(--panel-line);border-radius:4px;padding:6px}
+  #dataStatus{font-size:10px;color:var(--dim)}
 
   #trainContent{width:100%;margin:0 auto}
   #lossChart{display:block;width:100%;height:clamp(260px,45vh,560px);margin-top:8px;background:rgba(0,0,0,.25);border-radius:6px}
@@ -526,6 +533,18 @@
 </div>
 
 <div class="hud" id="screenData">
+  <div id="dataActions">
+    <button id="loadDataBtn" type="button">load dataset</button>
+    <label id="dataLoadModeLabel">as
+      <select id="dataLoadMode" aria-label="Dataset load mode">
+        <option value="replace">replace current</option>
+        <option value="append">append to current</option>
+      </select>
+    </label>
+    <button id="saveDataBtn" type="button" disabled>save dataset</button>
+    <input id="dataFileInput" type="file" accept=".zip,application/zip" hidden>
+    <span id="dataStatus" aria-live="polite"></span>
+  </div>
   <div id="dataEmpty">No frames recorded yet — drive a lap in Drive mode first.</div>
   <div id="dataContent" hidden>
     <div class="d-head">

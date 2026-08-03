@@ -1,5 +1,5 @@
 import { povCanvas } from '../sim/scene.js';
-import { dbPut, dbDelete, dbDeleteMany, dbGetAll } from './db.js';
+import { dbPut, dbPutMany, dbDelete, dbDeleteMany, dbGetAll, dbReplaceAll } from './db.js';
 
 // ---------- recording (tub) ----------
 // Frames persist to IndexedDB so the tub survives a reload -- see
@@ -159,4 +159,32 @@ export async function waitForTubIdle() {
   while (pendingWork.size) {
     await Promise.allSettled([...pendingWork]);
   }
+}
+
+// Replaces both copies of a dataset together. Imported records already have
+// their PNG blobs attached, so one IndexedDB transaction keeps a partial
+// import from being visible to the rest of the app.
+export async function replaceTub(records) {
+  await waitForTubIdle();
+  await dbReplaceAll(records);
+  tub.frames.length = 0;
+  tub.bins.fill(0);
+  nextId = 0;
+  for (const r of records.sort((a, b) => a.id - b.id)) {
+    tub.frames.push({ id: r.id, t: r.t, steer: r.steer, throttle: r.throttle });
+    tub.bins[binIndex(r.steer)]++;
+    if (r.id >= nextId) nextId = r.id + 1;
+  }
+  tub.loaded = true;
+}
+
+export async function appendTub(records) {
+  await waitForTubIdle();
+  await dbPutMany(records);
+  for (const r of records) {
+    tub.frames.push({ id: r.id, t: r.t, steer: r.steer, throttle: r.throttle });
+    tub.bins[binIndex(r.steer)]++;
+    if (r.id >= nextId) nextId = r.id + 1;
+  }
+  tub.loaded = true;
 }

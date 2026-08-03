@@ -1,5 +1,6 @@
-import { tub, tubTrimToLength, BINS } from '../data/tub.js';
-import { dbGet } from '../data/db.js';
+import { tub, tubTrimToLength, replaceTub, appendTub, waitForTubIdle, BINS } from '../data/tub.js';
+import { dbGet, dbGetAll } from '../data/db.js';
+import { zipEntries, unzipEntries } from '../utils/zip.js';
 import { onModeChange } from './mode.js';
 
 // ---------- Data screen ----------
@@ -22,6 +23,12 @@ const scrub = document.getElementById('deScrub');
 const info = document.getElementById('deInfo');
 const img = document.getElementById('deImg');
 const deleteBtn = document.getElementById('deDeleteBtn');
+const loadBtn = document.getElementById('loadDataBtn');
+const saveBtn = document.getElementById('saveDataBtn');
+const fileInput = document.getElementById('dataFileInput');
+const loadMode = document.getElementById('dataLoadMode');
+const dataStatus = document.getElementById('dataStatus');
+let saveBusy = false;
 
 const bars = [];
 for (let i = 0; i < BINS; i++) {
@@ -35,11 +42,102 @@ export function drawDataset(isRecording) {
   for (const dot of recDots) dot.classList.toggle('active', isRecording);
 
   const total = tub.frames.length;
+  saveBtn.disabled = total === 0 || saveBusy;
   dFrames.innerHTML = total + '<small>frames</small>';
 
   const max = Math.max(1, ...tub.bins);
   for (let i = 0; i < BINS; i++) bars[i].style.height = Math.round((tub.bins[i] / max) * 100) + '%';
 }
+
+function archiveName(name) {
+  return name.replace(/[^a-z0-9_-]+/gi, '-').toLowerCase().replace(/^-+|-+$/g, '') || 'dataset';
+}
+
+async function saveDataset() {
+  if (!tub.frames.length) return;
+  saveBusy = true;
+  saveBtn.disabled = true;
+  dataStatus.textContent = 'preparing download…';
+  try {
+    await waitForTubIdle();
+    const records = new Map((await dbGetAll()).map(record => [record.id, record]));
+    const frames = [];
+    const entries = [];
+    for (let i = 0; i < tub.frames.length; i++) {
+      const frame = tub.frames[i];
+      const record = records.get(frame.id);
+      if (!record?.img) throw new Error(`image missing for frame ${frame.id}`);
+      const path = `frames/${String(i).padStart(8, '0')}.png`;
+      frames.push({ id: frame.id, t: frame.t, steer: frame.steer, throttle: frame.throttle, image: path });
+      entries.push({ name: path, data: new Uint8Array(await record.img.arrayBuffer()) });
+    }
+    entries.unshift({ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify({
+      format: 'donkey-web-dataset', version: 1, frames,
+    })) });
+    const blob = new Blob([zipEntries(entries)], { type: 'application/zip' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${archiveName('dataset')}.zip`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    dataStatus.textContent = 'download started';
+  } catch (err) {
+    dataStatus.textContent = String(err.message || err);
+  } finally {
+    saveBusy = false;
+    saveBtn.disabled = tub.frames.length === 0;
+  }
+}
+
+async function loadDataset(file) {
+  loadBtn.disabled = true;
+  saveBtn.disabled = true;
+  dataStatus.textContent = 'reading dataset…';
+  try {
+    const entries = unzipEntries(await file.arrayBuffer());
+    const manifestBytes = entries.get('manifest.json');
+    if (!manifestBytes) throw new Error('ZIP does not contain manifest.json');
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    if (manifest.format !== 'donkey-web-dataset' || manifest.version !== 1 || !Array.isArray(manifest.frames)) {
+      throw new Error('unsupported dataset ZIP');
+    }
+    const append = loadMode.value === 'append';
+    if (!append && tub.frames.length && !confirm(`Replace the current ${tub.frames.length}-frame dataset?`)) return;
+    const ids = new Set();
+    const imported = manifest.frames.map((frame, index) => {
+      if (!Number.isInteger(frame.id) || frame.id < 0 || ids.has(frame.id)) throw new Error(`invalid frame id at ${index}`);
+      if (!Number.isFinite(frame.t) || !Number.isFinite(frame.steer) || !Number.isFinite(frame.throttle)) {
+        throw new Error(`invalid frame metadata at ${index}`);
+      }
+      ids.add(frame.id);
+      const image = entries.get(frame.image);
+      if (!image) throw new Error(`ZIP is missing ${frame.image}`);
+      return { id: frame.id, t: frame.t, steer: frame.steer, throttle: frame.throttle,
+        img: new Blob([image], { type: 'image/png' }) };
+    });
+    const appendBase = append ? tub.frames.reduce((max, frame) => Math.max(max, frame.id), -1) : -1;
+    const records = append
+      ? imported.map((frame, index) => ({ ...frame, id: appendBase + index + 1 }))
+      : imported;
+    if (append) await appendTub(records);
+    else await replaceTub(records);
+    dataStatus.textContent = `${records.length} frames ${append ? 'appended' : 'loaded'}`;
+    scrub.max = String(Math.max(0, tub.frames.length - 1));
+    scrub.value = String(Math.max(0, tub.frames.length - 1));
+    syncDataAvailability();
+    if (records.length) scheduleRenderFrame();
+  } catch (err) {
+    dataStatus.textContent = String(err.message || err);
+  } finally {
+    fileInput.value = '';
+    loadBtn.disabled = false;
+    saveBtn.disabled = tub.frames.length === 0;
+  }
+}
+
+saveBtn.addEventListener('click', saveDataset);
+loadBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadDataset(fileInput.files[0]); });
 
 let objectUrl = null;
 

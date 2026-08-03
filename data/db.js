@@ -34,6 +34,17 @@ export async function dbPut(record) {
   });
 }
 
+export async function dbPutMany(records) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    for (const record of records) store.put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function dbGet(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -78,6 +89,18 @@ export async function dbClear() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function dbReplaceAll(records) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    store.clear();
+    for (const record of records) store.put(record);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
