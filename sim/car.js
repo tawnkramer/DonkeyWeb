@@ -58,6 +58,9 @@ export const V = {
   TOP: 13.5,              // ~49 km/h
   GRIP_V: 8.5             // speed where steering starts to wash out
 };
+// Incremented whenever a controller deliberately relocates the vehicle.
+// Render interpolation must not blend across those discontinuities.
+export let poseVersion = 0;
 
 // nearest-center tracking (local search around last index)
 export let nearestIdx = START_IDX;
@@ -86,6 +89,7 @@ export function resetCar() {
   V.heading = Math.atan2(t.x, t.z);
   V.speed = 0; V.steer = 0;
   nearestIdx = best;
+  poseVersion++;
 }
 V.x = centers[START_IDX].x; V.z = centers[START_IDX].z;
 V.heading = Math.atan2(tangents[START_IDX].x, tangents[START_IDX].z);
@@ -111,6 +115,7 @@ export function placeCarAt(idx, lateralOffset, headingOffset) {
   cte = Math.abs(lateralOffset);
   offTrack = cte > TRACK_W / 2 + 0.15;
   wasOffTrack = offTrack;
+  poseVersion++;
 }
 
 // Lets recovery.js suspend the off-track auto-reset below for the

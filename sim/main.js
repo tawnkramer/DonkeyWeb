@@ -3,7 +3,7 @@ import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx
          isGLAvailable } from './scene.js';
 import './track.js';
 import './scenery.js';
-import { car, V, step, DT, resetCar, offTrack, simTime, cte } from './car.js';
+import { car, V, step, DT, resetCar, offTrack, simTime, cte, poseVersion } from './car.js';
 import { input, onReset } from './input.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps } from './hud.js';
@@ -82,7 +82,7 @@ window.__sim = {
 // jitter in the follow cam at the old, snappier damping.
 const CHASE_FOLLOW_RATE = 3.5;
 
-function placeCameras(rx, rz, rHeading, dt) {
+function placeCameras(rx, rz, rHeading, dt, snap = false) {
   car.position.set(rx, 0, rz);
   car.rotation.y = rHeading;
 
@@ -91,7 +91,8 @@ function placeCameras(rx, rz, rHeading, dt) {
   const tx = rx - Math.sin(rHeading)*back;
   const tz = rz - Math.cos(rHeading)*back;
   const followT = 1 - Math.exp(-CHASE_FOLLOW_RATE * dt);
-  chaseCam.position.lerp(new THREE.Vector3(tx, up, tz), followT);
+  if (snap) chaseCam.position.set(tx, up, tz);
+  else chaseCam.position.lerp(new THREE.Vector3(tx, up, tz), followT);
   chaseCam.lookAt(rx, 0.8, rz);
 
   // POV cam: on the mast, pitched slightly down (donkey-style)
@@ -106,6 +107,7 @@ function placeCameras(rx, rz, rHeading, dt) {
 let last = performance.now(), acc = 0;
 let fpsA = 60;
 let prevX = V.x, prevZ = V.z, prevHeading = V.heading;
+let seenPoseVersion = poseVersion;
 const REC_DT = 1/20;
 let recAcc = 0;
 
@@ -149,11 +151,21 @@ function frame(now) {
     acc -= DT;
   }
 
+  // Recovery generation and reset paths intentionally teleport the car. Do
+  // not interpolate from the old pose to the new one: that turns a jump cut
+  // into a disorienting camera sweep. Reset the interpolation origin and
+  // chase-camera follow target together.
+  const poseJumped = poseVersion !== seenPoseVersion;
+  if (poseJumped) {
+    prevX = V.x; prevZ = V.z; prevHeading = V.heading;
+    seenPoseVersion = poseVersion;
+  }
+
   const rAlpha = acc / DT;
   placeCameras(prevX + (V.x - prevX) * rAlpha,
                prevZ + (V.z - prevZ) * rAlpha,
                prevHeading + (V.heading - prevHeading) * rAlpha,
-               dt);
+               dt, poseJumped);
 
   // Stationary means the car's own state stopped changing this tick;
   // autopilot and recovery generation always count as active regardless
