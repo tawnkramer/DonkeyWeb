@@ -34,9 +34,17 @@ test('loads with no console errors, failed requests, or bad HTTP statuses', asyn
 });
 
 test('window.__sim debug hook exposes a fully-built scene', async () => {
-  const childCount = await page.evaluate(() => window.__sim.scene.children.length);
-  // track + scenery + car add up to a few hundred objects (road ribbon,
-  // dashes, checker strip, cones, ~90 trees, car parts); a low number
-  // here means something failed to build silently.
-  assert.ok(childCount > 100, `expected a populated scene, got ${childCount} children`);
+  // Counted recursively, not as scene.children.length: the active world's
+  // road and scenery each hang off the scene as a single Group (that
+  // grouping is what lets sim/world.js dispose a world wholesale), so the
+  // scene has only a handful of DIRECT children no matter how much is
+  // built. Road ribbon + dashes + checker + cones + ~90 trees + car parts
+  // still add up to a few hundred objects in total; a low number here
+  // means something failed to build silently.
+  const objectCount = await page.evaluate(() => {
+    let n = 0;
+    window.__sim.scene.traverse(() => n++);
+    return n;
+  });
+  assert.ok(objectCount > 100, `expected a populated scene, got ${objectCount} objects`);
 });

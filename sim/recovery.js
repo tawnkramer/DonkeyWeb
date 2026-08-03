@@ -1,5 +1,5 @@
 import { V, nearestIdx, placeCarAt, setAutoResetOnOffTrack } from './car.js';
-import { SAMPLES, TRACK_W, centers, tangents, normalAt } from './track.js';
+import { road } from './world.js';
 import { tub, tubTrimToLength } from '../data/tub.js';
 
 // ---------- automatic recovery-data generation ----------
@@ -30,8 +30,12 @@ const SUCCESS_LAT = 0.5;        // m of lateral error counted as "back on line"
 const SUCCESS_HEADING = 0.12;   // rad (~7deg)
 const SUCCESS_DWELL = 0.3;      // s the success condition must hold before ending the episode
 const EPISODE_TIMEOUT = 14;     // s; a stuck/failed recovery is abandoned and its frames dropped
-const OFFSET_MIN = TRACK_W * 0.3;   // m, just past the track edge (TRACK_W/2 = 3.5)
-const OFFSET_MAX = TRACK_W * 0.75;  // m, well onto the grass
+// Fractions of the live road width, not absolute metres: "just past the
+// edge" and "well onto the grass" have to mean the same thing on a 5m
+// canyon road as on a 9m speedway, or recovery episodes on a narrow world
+// would all start implausibly far out.
+const OFFSET_MIN_FRAC = 0.3;    // just past the road edge (edge is at 0.5)
+const OFFSET_MAX_FRAC = 0.75;   // well onto the shoulder
 const HEADING_SPREAD = 2.3;     // rad, up to ~130 degrees off the track direction either way
 
 export const recovery = {
@@ -53,9 +57,9 @@ function normalizeAngle(a) {
 }
 
 function newPerturbation() {
-  const idx = Math.floor(Math.random() * SAMPLES);
+  const idx = Math.floor(Math.random() * road.SAMPLES);
   const side = Math.random() < 0.5 ? -1 : 1;
-  const lateral = side * randRange(OFFSET_MIN, OFFSET_MAX);
+  const lateral = side * randRange(road.width * OFFSET_MIN_FRAC, road.width * OFFSET_MAX_FRAC);
   const heading = randRange(-HEADING_SPREAD, HEADING_SPREAD);
   placeCarAt(idx, lateral, heading);
   recovery.phase = 'recovering';
@@ -97,7 +101,7 @@ export function stepRecovery(dt) {
   if (!recovery.active) return;
 
   const idx = nearestIdx;
-  const c = centers[idx], t = tangents[idx], n = normalAt(idx);
+  const c = road.centers[idx], t = road.tangents[idx], n = road.normalAt(idx);
   const trackHeading = Math.atan2(t.x, t.z);
   const headingError = normalizeAngle(trackHeading - V.heading);
   const eLat = (V.x - c.x) * n.x + (V.z - c.z) * n.z;

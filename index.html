@@ -162,6 +162,13 @@
   .menuSection[aria-expanded="true"]::after{transform:rotate(90deg)}
   .menuSubmenu{display:none;flex-direction:column;gap:4px;padding-left:10px;border-left:1px solid var(--panel-line)}
   .menuSubmenu.open{display:flex}
+  #worldList{display:flex;flex-direction:column;gap:4px}
+  #worldList button{width:100%;display:flex;flex-direction:column;gap:2px}
+  #worldList button .worldBlurb{color:var(--dim);font-size:10px}
+  /* The active world reads as selected without relying on hover/focus,
+     which the rule above already uses for a different meaning. */
+  #worldList button[aria-current="true"]{border-color:var(--cone)}
+  #worldList button[aria-current="true"] .worldName::before{content:'▸ '}
   #modelMenuStatus{padding:3px 10px;color:var(--dim);font-size:10px;line-height:1.4}
   #modelFileInput{display:none}
   .navbtn{
@@ -502,7 +509,9 @@
 <div class="hud" id="navbar">
   <div id="brand">
     <div class="word">donkey<b>.</b>web</div>
-    <div class="sub">M2 · the loop</div>
+    <!-- Track name is filled in by sim/worldui.js from the active world;
+         the literal here is just the pre-hydration default. -->
+    <div class="sub" id="brandSub">M2 · the loop</div>
   </div>
   <div class="navgroup">
     <button class="navbtn" data-mode="drive">Drive</button>
@@ -512,6 +521,12 @@
     <div id="modelMenuWrap">
       <button id="modelMenuBtn" aria-label="Models menu" aria-expanded="false"><span></span><span></span><span></span></button>
       <div id="modelMenu" role="menu">
+        <button class="menuSection" type="button" data-submenu="world" aria-expanded="false">world</button>
+        <div class="menuSubmenu" data-submenu-panel="world">
+          <!-- Populated by sim/worldui.js from the worlds/ registry, so
+               adding a world never means editing this file. -->
+          <div id="worldList"></div>
+        </div>
         <button class="menuSection" type="button" data-submenu="augment" aria-expanded="false">augment</button>
         <div class="menuSubmenu" data-submenu-panel="augment">
           <button class="menuModeBtn" data-mode="recover" role="menuitem">recovery generation</button>

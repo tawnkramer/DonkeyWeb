@@ -1,9 +1,8 @@
 import * as THREE from 'three';
 import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H,
          isGLAvailable } from './scene.js';
-import './track.js';
-import './scenery.js';
-import { car, V, step, DT, resetCar, offTrack, simTime, cte, poseVersion } from './car.js';
+import { road, setWorld, listWorlds, getWorldId, onWorldChange } from './world.js';
+import { car, V, step, DT, resetCar, resetCarToStart, offTrack, simTime, cte, poseVersion } from './car.js';
 import { input, source, onReset } from './input.js';
 import { gamepad, pollGamepads } from './gamepad.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
@@ -14,6 +13,7 @@ import { recovery, startRecovery, stopRecovery, stepRecovery, onRecoveryDeactiva
 import { getMode, setMode, onModeChange } from './mode.js';
 import './navui.js';
 import './modelui.js';
+import './worldui.js';
 import './joystick.js';
 import './trainui.js';
 import { drawPilot } from './pilotui.js';
@@ -42,6 +42,25 @@ onRecoveryDeactivate(resetToLine);
 onModeChange(next => {
   if (next !== 'drive' && next !== 'eval' && pilot.active) setPilotActive(false);
   if (next !== 'recover' && recovery.active) stopRecovery();
+  // Arriving on a driving screen repaints even if the car never moved:
+  // rendering is gated on being on one of these screens, so a world
+  // switched from Data/Train would otherwise burn its wake while nothing
+  // was drawing and leave the stale world on screen.
+  if (next === 'drive' || next === 'eval' || next === 'recover') wakeRender();
+});
+
+// Switching worlds puts the car on the new start line, stopped. Recovery
+// generation is stopped outright rather than carried over: an episode is
+// scored against the road it started on (its perturbation index and
+// success thresholds), so letting one straddle a world swap would file
+// frames from the new road under the old episode. Autopilot is left
+// running on purpose -- "load a model, then try it on a track it never
+// saw" is exactly the cross-world generalization check worlds are for.
+onWorldChange(() => {
+  if (recovery.active) stopRecovery();   // -> resetToLine via onRecoveryDeactivate
+  resetCarToStart();
+  input.throttle = 0;
+  wakeRender();
 });
 
 // Not awaited: the sim starts driving immediately (recording just stays
@@ -60,6 +79,7 @@ window.__sim = {
   V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
   getAvailableModels, recovery, startRecovery, stopRecovery,
+  road, setWorld, listWorlds, getWorldId,
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
   get cte() { return cte; },
@@ -125,6 +145,16 @@ let recAcc = 0;
 // so any input resumes full rendering on the very frame it matters.
 const IDLE_SETTLE_S = 1.5;
 let idleDt = 0;
+
+// Forces rendering back on for the next IDLE_SETTLE_S. The idle skip above
+// reasons purely about the CAR ("same physics state in means the same
+// pixels out"), which silently assumes the car is the only thing that can
+// change what's on screen. Anything that edits the scene while the car
+// sits still breaks that assumption and has to say so here -- switching
+// worlds replaces every mesh in the scene without moving the car one
+// millimetre, so without this the new world isn't drawn until something
+// happens to wake the loop (touching the throttle, or reloading the page).
+function wakeRender() { idleDt = 0; }
 
 function frame(now) {
   requestAnimationFrame(frame);

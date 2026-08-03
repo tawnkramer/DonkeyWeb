@@ -14,26 +14,6 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 export const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xf2b98e, 60, 240);
-
-// Sky as a real background texture (matching the page's CSS dusk gradient)
-// rather than relying on the canvas's alpha:true letting the CSS show
-// through -- that trick only works for the main visible canvas. The
-// offscreen POV render target has no such backdrop, so it needs an actual
-// scene.background to render a matching sky instead of empty/transparent
-// pixels (which the pov canvas's black CSS background then shows as black).
-{
-  const skyCanvas = document.createElement('canvas');
-  skyCanvas.width = 1; skyCanvas.height = 256;
-  const ctx = skyCanvas.getContext('2d');
-  const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, '#8ea0d8');
-  grad.addColorStop(0.55, '#c3a7c9');
-  grad.addColorStop(1, '#f2b98e');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 1, 256);
-  scene.background = new THREE.CanvasTexture(skyCanvas);
-}
 
 // far planes trimmed to roughly the fog/track extent: an oversized far
 // plane starves the depth buffer of precision, which was causing the
@@ -69,3 +49,44 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI/2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// ---------- environment ----------
+// The lights and ground plane are permanent fixtures -- a world switch
+// retunes them in place rather than rebuilding them, which keeps the
+// shadow camera (and its 2048² map) from being reallocated every time.
+// Only the sky texture is actually replaced, since it's baked pixels.
+//
+// Sky is a real background texture rather than relying on the canvas's
+// alpha:true letting the page's CSS gradient show through -- that trick
+// only works for the main visible canvas. The offscreen POV render target
+// has no such backdrop, so it needs an actual scene.background to render a
+// matching sky instead of empty/transparent pixels (which the pov canvas's
+// black CSS background then shows as black).
+function skyTexture(stops) {
+  const skyCanvas = document.createElement('canvas');
+  skyCanvas.width = 1; skyCanvas.height = 256;
+  const ctx = skyCanvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  for (const [at, color] of stops) grad.addColorStop(at, color);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1, 256);
+  return new THREE.CanvasTexture(skyCanvas);
+}
+
+export function applyEnvironment(env) {
+  const old = scene.background;
+  scene.background = skyTexture(env.sky);
+  if (old) old.dispose();
+
+  scene.fog = new THREE.Fog(env.fog.color, env.fog.near, env.fog.far);
+
+  hemi.color.setHex(env.hemi.sky);
+  hemi.groundColor.setHex(env.hemi.ground);
+  hemi.intensity = env.hemi.intensity;
+
+  sun.color.setHex(env.sun.color);
+  sun.intensity = env.sun.intensity;
+  sun.position.set(...env.sun.position);
+
+  ground.material.color.setHex(env.ground);
+}

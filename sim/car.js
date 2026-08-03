@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { scene } from './scene.js';
-import { SAMPLES, TRACK_W, START_IDX, centers, tangents, normalAt } from './track.js';
+// Read through `road` rather than destructuring: it's mutated in place on a
+// world switch, so pulling `centers`/`width` out into locals here would
+// pin this module to whichever world happened to load first.
+import { road } from './world.js';
 import { input } from './input.js';
 import { tubTrimLastSeconds } from '../data/tub.js';
 import { pilot } from '../train/autopilot.js';
@@ -63,11 +66,18 @@ export const V = {
 export let poseVersion = 0;
 
 // nearest-center tracking (local search around last index)
-export let nearestIdx = START_IDX;
+export let nearestIdx = road.startIdx;
 function updateNearest() {
-  let best = nearestIdx, bd = Infinity;
+  const { SAMPLES, centers } = road;
+  // `from` is the fixed centre of the search window and must stay fixed:
+  // scanning relative to `best` while `best` is being reassigned inside
+  // the loop slides the window forward with every improvement, so it walks
+  // away from the car instead of bracketing it. Also clamped into range,
+  // since a world switch can hand us an index from a longer road.
+  const from = nearestIdx % SAMPLES;
+  let best = from, bd = Infinity;
   for (let o = -30; o <= 30; o++) {
-    const i = (nearestIdx + o + SAMPLES) % SAMPLES;
+    const i = (from + o + SAMPLES) % SAMPLES;
     const dx = centers[i].x - V.x, dz = centers[i].z - V.z;
     const d = dx*dx + dz*dz;
     if (d < bd) { bd = d; best = i; }
@@ -76,28 +86,55 @@ function updateNearest() {
   return Math.sqrt(bd);
 }
 
+// Snaps to the given sample, aligned with the road. Shared by resetCar()
+// (nearest sample) and resetCarToStart() (the start/finish line).
+function placeAtSample(idx) {
+  const c = road.centers[idx], t = road.tangents[idx];
+  V.x = c.x; V.z = c.z;
+  V.heading = Math.atan2(t.x, t.z);
+  V.speed = 0; V.steer = 0;
+  nearestIdx = idx;
+  cte = 0;
+  offTrack = false;
+  wasOffTrack = false;
+  poseVersion++;
+}
+
 export function resetCar() {
   // snap to nearest center point, aligned with track
+  const { SAMPLES, centers } = road;
   let best = 0, bd = Infinity;
   for (let i = 0; i < SAMPLES; i++) {
     const dx = centers[i].x - V.x, dz = centers[i].z - V.z;
     const d = dx*dx + dz*dz;
     if (d < bd) { bd = d; best = i; }
   }
-  const c = centers[best], t = tangents[best];
-  V.x = c.x; V.z = c.z;
-  V.heading = Math.atan2(t.x, t.z);
-  V.speed = 0; V.steer = 0;
-  nearestIdx = best;
-  poseVersion++;
+  placeAtSample(best);
 }
-V.x = centers[START_IDX].x; V.z = centers[START_IDX].z;
-V.heading = Math.atan2(tangents[START_IDX].x, tangents[START_IDX].z);
+
+// Used on a world switch: the car's old coordinates mean nothing on a new
+// road (they can land anywhere, including inside the new road's scenery),
+// so it goes to the start/finish line rather than to whatever sample of
+// the new road happens to be nearest its stale position.
+export function resetCarToStart() {
+  placeAtSample(road.startIdx);
+}
 
 // ---------- fixed-step sim ----------
 export const DT = 1/50;
 export let cte = 0, offTrack = false, throttleVis = 0, simTime = 0;
 let wasOffTrack = false;
+
+// Initial pose. Deliberately down here rather than up beside the V
+// declaration: resetCarToStart() writes cte/offTrack/wasOffTrack, which
+// are `let` bindings declared just above -- calling it any earlier in the
+// module body hits their temporal dead zone.
+resetCarToStart();
+
+// How far past the road edge counts as off. A margin, not a half-width, so
+// it scales with whatever road is live.
+const OFF_TRACK_MARGIN = 0.15;
+function offTrackLimit() { return road.width / 2 + OFF_TRACK_MARGIN; }
 
 // Teleports the car to an arbitrary pose relative to track sample `idx` --
 // unlike resetCar() (which always snaps onto the centerline), this can
@@ -105,7 +142,7 @@ let wasOffTrack = false;
 // recovery.js to spawn poses a human driver wouldn't produce on their own,
 // then let a recovery controller correct back onto the track.
 export function placeCarAt(idx, lateralOffset, headingOffset) {
-  const c = centers[idx], t = tangents[idx], n = normalAt(idx);
+  const c = road.centers[idx], t = road.tangents[idx], n = road.normalAt(idx);
   V.x = c.x + n.x * lateralOffset;
   V.z = c.z + n.z * lateralOffset;
   V.heading = Math.atan2(t.x, t.z) + headingOffset;
@@ -113,7 +150,7 @@ export function placeCarAt(idx, lateralOffset, headingOffset) {
   V.steer = 0;
   nearestIdx = idx;
   cte = Math.abs(lateralOffset);
-  offTrack = cte > TRACK_W / 2 + 0.15;
+  offTrack = cte > offTrackLimit();
   wasOffTrack = offTrack;
   poseVersion++;
 }
@@ -156,7 +193,7 @@ export function step(dt) {
 
   const dist = updateNearest();
   cte = dist;
-  offTrack = dist > TRACK_W/2 + 0.15;
+  offTrack = dist > offTrackLimit();
   simTime += dt;
 
   // Going off-track ends the recording (the gating in the record loop
