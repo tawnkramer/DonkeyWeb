@@ -156,6 +156,7 @@
   #modelMenu.open{display:flex}
   #modelMenu button{padding:10px;text-align:left;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text);font:11px 'IBM Plex Mono',monospace;cursor:pointer}
   #modelMenu button:hover,#modelMenu button:focus{background:rgba(255,255,255,.1);border-color:var(--panel-line)}
+  #modelMenu button:disabled{opacity:.4;cursor:default}
   .menuSection{display:flex;justify-content:space-between;align-items:center;width:100%;font-weight:500!important;text-transform:uppercase}
   .menuSection::after{content:'›';font-size:16px;color:var(--dim);transition:transform .15s}
   .menuSection[aria-expanded="true"]::after{transform:rotate(90deg)}
@@ -288,10 +289,6 @@
     letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
   }
   #deDeleteBtn:disabled{opacity:.4;cursor:default}
-  #dataActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:640px;margin:0 auto 14px}
-  #dataActions button{font:11px 'IBM Plex Mono',monospace;color:var(--text);background:rgba(255,255,255,.08);border:1px solid var(--panel-line);border-radius:5px;padding:8px 10px;cursor:pointer}
-  #dataActions button:hover{background:rgba(255,255,255,.14)}
-  #dataActions button:disabled{opacity:.4;cursor:default}
   #dataLoadModeLabel{font-size:10px;color:var(--dim);display:flex;align-items:center;gap:5px}
   #dataLoadMode{font:10px 'IBM Plex Mono',monospace;color:var(--text);background:rgba(255,255,255,.08);border:1px solid var(--panel-line);border-radius:4px;padding:6px}
   #dataStatus{font-size:10px;color:var(--dim)}
@@ -500,6 +497,18 @@
           <button id="saveModelBtn" role="menuitem">save current model</button>
           <button id="deleteModelBtn" role="menuitem">delete current model</button>
         </div>
+        <button class="menuSection" type="button" data-submenu="dataset" aria-expanded="false">dataset</button>
+        <div class="menuSubmenu" data-submenu-panel="dataset">
+          <label id="dataLoadModeLabel">load as
+            <select id="dataLoadMode" aria-label="Dataset load mode">
+              <option value="replace">replace current</option>
+              <option value="append">append to current</option>
+            </select>
+          </label>
+          <button id="loadDataBtn" role="menuitem">load dataset</button>
+          <button id="saveDataBtn" role="menuitem" disabled>save dataset</button>
+          <div id="dataStatus" aria-live="polite"></div>
+        </div>
         <div id="modelMenuStatus" aria-live="polite"></div>
       </div>
       <input id="modelFileInput" type="file" accept=".zip,.json,.bin,application/zip,application/json,application/octet-stream" multiple>
@@ -533,18 +542,7 @@
 </div>
 
 <div class="hud" id="screenData">
-  <div id="dataActions">
-    <button id="loadDataBtn" type="button">load dataset</button>
-    <label id="dataLoadModeLabel">as
-      <select id="dataLoadMode" aria-label="Dataset load mode">
-        <option value="replace">replace current</option>
-        <option value="append">append to current</option>
-      </select>
-    </label>
-    <button id="saveDataBtn" type="button" disabled>save dataset</button>
-    <input id="dataFileInput" type="file" accept=".zip,application/zip" hidden>
-    <span id="dataStatus" aria-live="polite"></span>
-  </div>
+  <input id="dataFileInput" type="file" accept=".zip,application/zip" hidden>
   <div id="dataEmpty">No frames recorded yet — drive a lap in Drive mode first.</div>
   <div id="dataContent" hidden>
     <div class="d-head">
