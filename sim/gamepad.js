@@ -13,6 +13,28 @@ import { setSteer, setThrottle, source, requestReset, dismissHint } from './inpu
 // Everything below follows from that -- see the ownership note in
 // input.js for why a polled source has to be careful about when it writes.
 
+// Sticks rest off centre on worn hardware, so a deadzone is not optional,
+// but it is not free either: everything inside it is travel your thumb
+// spends for nothing, and the rest of the throw gets stretched to cover
+// full lock. Too wide reads as coarse small corrections -- which is the
+// half of the steering signal a cloned policy most needs.
+//
+// Rescaled rather than clipped: without the rescale the value would jump
+// from 0 straight to the deadzone width the instant you leave the dead
+// area, a step change in that same small-correction range.
+//
+// 0.06 is tuned for a DualSense, which self-centres tightly. A worn or
+// cheap third-party pad may need this back up around 0.12; that is the
+// knob, and gamepad.deadzone below reports what is live.
+const STICK_DEADZONE = 0.06;
+// Triggers rest at a hard 0 and are much less noisy, so this only needs
+// to swallow jitter, not slop.
+const TRIGGER_DEADZONE = 0.03;
+// How much a reading must change between polls to count as "the user
+// moved this", i.e. to claim the axis. Above stick noise, well below any
+// deliberate motion.
+const MOVE_EPS = 0.02;
+
 export const gamepad = {
   connected: false,
   id: '',
@@ -22,21 +44,12 @@ export const gamepad = {
   // wildly in what feels right, so both are live at once and whichever
   // the user moves last wins (the same rule as between devices).
   throttleControl: 'triggers',
+  // Reported, not just used, so the live value is visible from devtools
+  // while tuning it against real hardware -- and so the tests can derive
+  // their boundaries from it instead of hardcoding a number that goes
+  // stale the next time it moves.
+  deadzone: STICK_DEADZONE,
 };
-
-// Sticks rest a few percent off centre on worn hardware, so a deadzone is
-// not optional. Rescaled rather than clipped: without the rescale, the
-// value would jump from 0 straight to DEADZONE the instant you leave the
-// dead area, which is a step change in exactly the small-correction range
-// that matters most for steering data.
-const STICK_DEADZONE = 0.12;
-// Triggers rest at a hard 0 and are much less noisy, so this only needs
-// to swallow jitter, not slop.
-const TRIGGER_DEADZONE = 0.03;
-// How much a reading must change between polls to count as "the user
-// moved this", i.e. to claim the axis. Above stick noise, well below any
-// deliberate motion.
-const MOVE_EPS = 0.02;
 
 // Standard-mapping indices (https://w3c.github.io/gamepad/#remapping).
 // Non-standard pads (mapping !== 'standard') are still read on the same

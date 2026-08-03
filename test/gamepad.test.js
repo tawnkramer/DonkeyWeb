@@ -14,7 +14,10 @@ async function installFakePad() {
     window.__pad = {
       id: 'Test Pad (STANDARD GAMEPAD Vendor: 0000 Product: 0000)',
       index: 0, connected: true, mapping: 'standard',
-      axes: [0, 0, 0, 0],
+      // A small resting offset, baked in before the first poll can happen
+      // -- see the connect test for why it has to be set here rather than
+      // pushed in afterwards.
+      axes: [0.05, 0, 0, 0],
       buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
     };
     window.__padPresent = true;
@@ -57,11 +60,14 @@ before(async () => {
 after(() => teardown());
 
 test('a freshly connected pad announces itself without grabbing an axis', async () => {
-  // The seeding poll matters: a controller whose sticks rest a few
-  // percent off centre must not steal steering the instant it is plugged
-  // in, before the user has touched it.
+  // The seeding poll matters: a controller whose sticks rest off centre
+  // must not steal steering the instant it is plugged in, before the user
+  // has touched it. The resting offset is part of the pad's initial state
+  // rather than something this test pushes in, because the sim's own
+  // frame loop is also polling -- whichever poll lands first has to see
+  // the same resting value, or the change between them reads as motion.
   await page.evaluate(() => { __sim.input.steer = 0.42; });
-  const first = await poll({ axes: [0.05, 0, 0, 0] });
+  const first = await poll();
   assert.equal(first.connected, true, 'pad should be detected on the first poll');
   assert.equal(first.steer, 0.42, 'connecting must not overwrite the current steer value');
   assert.notEqual(first.source.steer, 'gamepad');
@@ -90,11 +96,17 @@ test('left stick steers continuously, correctly signed', async () => {
 });
 
 test('stick deadzone is rescaled, not clipped', async () => {
-  assert.equal((await poll({ axes: [0.08, 0, 0, 0] })).steer, 0, 'resting slop must read as exactly centred');
+  // Derived from the live constant rather than hardcoded: the deadzone is
+  // explicitly a feel knob that gets retuned against real hardware, and a
+  // test that has to be edited alongside it is a test that will be edited
+  // to whatever the new code does.
+  const dz = await page.evaluate(() => __sim.gamepad.deadzone);
+  assert.equal((await poll({ axes: [dz * 0.7, 0, 0, 0] })).steer, 0, 'resting slop must read as exactly centred');
+
   // Just outside the deadzone must be a small value, not a jump to the
   // deadzone width -- small corrections are the part of the steering
   // signal that a cloned policy most needs to be continuous.
-  const nudge = (await poll({ axes: [0.16, 0, 0, 0] })).steer;
+  const nudge = (await poll({ axes: [dz + 0.04, 0, 0, 0] })).steer;
   assert.ok(nudge < 0 && nudge > -0.1, `expected a small negative value just past the deadzone, got ${nudge}`);
 });
 
