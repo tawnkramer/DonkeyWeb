@@ -8,7 +8,9 @@ before(async () => { ({ page, teardown } = await setupSimPage()); });
 after(() => teardown());
 
 test('Recover mode shows its own panel and hides Eval/Data chrome', async () => {
-  await page.evaluate(() => { __sim.setMode('recover'); });
+  await page.click('#modelMenuBtn');
+  await page.click('.menuSection[data-submenu="augment"]');
+  await page.click('.menuModeBtn[data-mode="recover"]');
   const state = await page.evaluate(() => ({
     mode: document.body.dataset.mode,
     povwrapVisible: getComputedStyle(document.getElementById('povwrap')).display !== 'none',

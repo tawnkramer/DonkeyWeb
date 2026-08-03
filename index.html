@@ -156,6 +156,11 @@
   #modelMenu.open{display:flex}
   #modelMenu button{padding:10px;text-align:left;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--text);font:11px 'IBM Plex Mono',monospace;cursor:pointer}
   #modelMenu button:hover,#modelMenu button:focus{background:rgba(255,255,255,.1);border-color:var(--panel-line)}
+  .menuSection{display:flex;justify-content:space-between;align-items:center;width:100%;font-weight:500!important;text-transform:uppercase}
+  .menuSection::after{content:'›';font-size:16px;color:var(--dim);transition:transform .15s}
+  .menuSection[aria-expanded="true"]::after{transform:rotate(90deg)}
+  .menuSubmenu{display:none;flex-direction:column;gap:4px;padding-left:10px;border-left:1px solid var(--panel-line)}
+  .menuSubmenu.open{display:flex}
   #modelMenuStatus{padding:3px 10px;color:var(--dim);font-size:10px;line-height:1.4}
   #modelFileInput{display:none}
   .navbtn{
@@ -475,13 +480,19 @@
     <button class="navbtn" data-mode="data">Data</button>
     <button class="navbtn" data-mode="train">Train</button>
     <button class="navbtn" data-mode="eval">Eval</button>
-    <button class="navbtn" data-mode="recover">Recover</button>
     <div id="modelMenuWrap">
       <button id="modelMenuBtn" aria-label="Models menu" aria-expanded="false"><span></span><span></span><span></span></button>
       <div id="modelMenu" role="menu">
-        <button id="loadModelBtn" role="menuitem">load model</button>
-        <button id="saveModelBtn" role="menuitem">save current model</button>
-        <button id="deleteModelBtn" role="menuitem">delete current model</button>
+        <button class="menuSection" type="button" data-submenu="augment" aria-expanded="false">augment</button>
+        <div class="menuSubmenu" data-submenu-panel="augment">
+          <button class="menuModeBtn" data-mode="recover" role="menuitem">recovery generation</button>
+        </div>
+        <button class="menuSection" type="button" data-submenu="model" aria-expanded="false">model</button>
+        <div class="menuSubmenu" data-submenu-panel="model">
+          <button id="loadModelBtn" role="menuitem">load model</button>
+          <button id="saveModelBtn" role="menuitem">save current model</button>
+          <button id="deleteModelBtn" role="menuitem">delete current model</button>
+        </div>
         <div id="modelMenuStatus" aria-live="polite"></div>
       </div>
       <input id="modelFileInput" type="file" accept=".zip,.json,.bin,application/zip,application/json,application/octet-stream" multiple>

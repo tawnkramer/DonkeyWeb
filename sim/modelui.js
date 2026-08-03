@@ -33,6 +33,21 @@ menuBtn.addEventListener('click', () => {
   menuBtn.setAttribute('aria-expanded', String(open));
 });
 
+document.querySelectorAll('[data-submenu]').forEach(section => {
+  section.addEventListener('click', () => {
+    const open = section.getAttribute('aria-expanded') !== 'true';
+    section.setAttribute('aria-expanded', String(open));
+    document.querySelector(`[data-submenu-panel="${section.dataset.submenu}"]`).classList.toggle('open', open);
+  });
+});
+
+document.querySelectorAll('.menuModeBtn').forEach(button => {
+  button.addEventListener('click', () => {
+    menu.classList.remove('open');
+    menuBtn.setAttribute('aria-expanded', 'false');
+  });
+});
+
 document.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('#modelMenuWrap')) {
     menu.classList.remove('open');

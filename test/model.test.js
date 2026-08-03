@@ -44,6 +44,7 @@ test('models menu opens as a touch-sized mobile control', async () => {
   assert.equal(state.loadText, 'load model');
   assert.equal(state.saveText, 'save current model');
 
+  await page.click('.menuSection[data-submenu="model"]');
   await page.click('#deleteModelBtn');
   assert.equal(await page.$eval('#modelMenuStatus', el => el.textContent), 'the built-in model cannot be deleted');
 });

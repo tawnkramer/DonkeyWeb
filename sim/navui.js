@@ -3,8 +3,16 @@ import { dismissHint } from './input.js';
 
 // ---------- top nav ----------
 const buttons = [...document.querySelectorAll('.navbtn')];
+const menuModeButtons = [...document.querySelectorAll('.menuModeBtn')];
 
 buttons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    dismissHint();
+    setMode(btn.dataset.mode);
+  });
+});
+
+menuModeButtons.forEach(btn => {
   btn.addEventListener('click', () => {
     dismissHint();
     setMode(btn.dataset.mode);
