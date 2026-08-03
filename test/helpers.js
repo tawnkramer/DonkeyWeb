@@ -59,6 +59,28 @@ export async function waitFor(page, fn, { timeout = 8000, interval = 50, message
   throw new Error(`waitFor timed out after ${timeout}ms${detail ? `: ${detail}` : ''}`);
 }
 
+// Hides any REAL controller plugged into the machine running the tests.
+//
+// This is not hypothetical: headless Chrome does expose a physically
+// connected pad, so a developer driving a DualSense while the suite runs
+// has gamepad.js claim the throttle and overwrite whatever the test set,
+// every frame. That surfaced as tests failing intermittently for reasons
+// that looked like bad test design -- a car that accelerated after the
+// test had parked it, a throttle that drifted off the value it was given.
+// Nothing about the suite should depend on what hardware is attached.
+//
+// Installed with configurable:true and before any page script runs, so
+// tests that want a pad (see gamepad.test.js) can still define their own
+// fake over the top of it.
+export async function blockRealGamepads(page) {
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'getGamepads', {
+      configurable: true,
+      value: () => [],
+    });
+  });
+}
+
 // Frames persist in IndexedDB across page loads by design (that's the
 // point) -- tests that need a clean slate must ask for one explicitly.
 export async function resetIndexedDB(page) {
@@ -77,6 +99,7 @@ export async function setupSimPage() {
   const { server, url: baseUrl } = await startServer();
   const browser = await launchBrowser();
   const page = await browser.newPage();
+  await blockRealGamepads(page);
   await page.goto(`${baseUrl}/index.html`, { waitUntil: 'load', timeout: 20000 });
   await resetIndexedDB(page);
   await page.reload({ waitUntil: 'load', timeout: 20000 });

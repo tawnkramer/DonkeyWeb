@@ -4,11 +4,15 @@ import { setupSimPage } from './helpers.js';
 
 let page, teardown;
 
-// There is no way to make headless Chrome expose a real controller, so
 // navigator.getGamepads is replaced with one that reports a fake
 // standard-mapping pad we can drive from the test. That is the whole API
 // surface gamepad.js touches, so everything below it -- deadzones,
 // ownership, sign conventions -- is the real code path.
+//
+// A fake is used for control, not because a real pad is invisible here:
+// headless Chrome DOES see a controller attached to the host, which is
+// why setupSimPage() stubs it out first (see blockRealGamepads). This
+// redefinition deliberately lands on top of that stub.
 async function installFakePad() {
   await page.evaluate(() => {
     window.__pad = {

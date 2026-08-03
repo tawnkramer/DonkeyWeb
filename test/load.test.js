@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, launchBrowser, waitFor } from './helpers.js';
+import { startServer, launchBrowser, waitFor, blockRealGamepads } from './helpers.js';
 
 let server, browser, page, baseUrl;
 
@@ -8,6 +8,7 @@ before(async () => {
   ({ server, url: baseUrl } = await startServer());
   browser = await launchBrowser();
   page = await browser.newPage();
+  await blockRealGamepads(page);
 });
 
 after(async () => {
