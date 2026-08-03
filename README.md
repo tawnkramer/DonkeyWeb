@@ -18,7 +18,9 @@ donkeycar, not just conceptually similar to one.
 
 - **Drive**: mouse steers, scroll wheel (or `W`/`S`) controls throttle --
   continuous input, not on/off keys, because that's what trains a good
-  model. `R` resets to the start line.
+  model. Plug in a gamepad and it just works: whichever device you touched
+  last is the one driving, so there is no input mode to switch. `R` resets
+  to the start line.
 - **Record**: every driven frame (image + steering + throttle) is captured
   to IndexedDB automatically while you drive forward on-track. A live
   steering histogram shows you when your data is too straight-line-heavy to
@@ -89,7 +91,15 @@ project-page subpath like the one above.
 | Arrow keys / `A` `D` | Snap steering full left/right (keyboard is on/off, not continuous) |
 | `R` | Reset to the start line |
 | `P` | Toggle autopilot (once a model is loaded) |
-| Touch | On-screen d-pad appears automatically on touch devices |
+| Touch | Two analog sticks appear automatically on touch devices (left steers, right throttles) |
+| Gamepad — left stick | Steer (analog, with a rescaled deadzone) |
+| Gamepad — triggers | Throttle / brake-reverse; the right stick works too, whichever you moved last |
+| Gamepad — start | Reset to the start line |
+
+All of these are live at once. Whichever device you last actually moved
+owns steering and throttle — pick up the pad mid-lap and it takes over,
+nudge the mouse and it takes it back. Unplugging a pad while it is driving
+hands the axes back at zero rather than leaving the throttle pinned.
 
 ## Development
 

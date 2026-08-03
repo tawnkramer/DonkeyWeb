@@ -4,7 +4,8 @@ import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx
 import './track.js';
 import './scenery.js';
 import { car, V, step, DT, resetCar, offTrack, simTime, cte, poseVersion } from './car.js';
-import { input, onReset } from './input.js';
+import { input, source, onReset } from './input.js';
+import { gamepad, pollGamepads } from './gamepad.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
 import { drawHud, setFps } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
@@ -55,7 +56,8 @@ loadTub();
 // plain values, so offTrack/simTime/cte reflect the current tick rather
 // than whatever they were when this object was built.
 window.__sim = {
-  input, V, tub, scene, training, trainStart, trainStop,
+  input, source, gamepad, pollGamepads,
+  V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
   getAvailableModels, recovery, startRecovery, stopRecovery,
   get offTrack() { return offTrack; },
@@ -130,6 +132,12 @@ function frame(now) {
   last = now;
   if (dt > 0.1) dt = 0.1;
   fpsA += (1/Math.max(dt,1e-4) - fpsA) * 0.05;
+
+  // The Gamepad API has no events for axis motion, so the pad is read
+  // here, once per rendered frame. It sits before the autopilot override
+  // below for the same reason the mouse does: while a model is driving,
+  // nothing the human touches should reach the car.
+  pollGamepads();
 
   // In autopilot the model's latest prediction overwrites input right
   // before physics, so stray mouse/key events between frames never steer

@@ -1,4 +1,4 @@
-import { input, dismissHint } from './input.js';
+import { setSteer, setThrottle, dismissHint } from './input.js';
 
 // ---------- touch sticks: left steers, right throttles ----------
 // Both replace on/off buttons with continuous analog input, for the same
@@ -39,10 +39,8 @@ function makeStick(baseId, thumbId, axis, apply) {
     setThumb(delta);
     // Screen coordinates grow right and down; both controls want the
     // opposite sign (+1 steer = full LEFT, +1 throttle = forward/UP), so
-    // the same negation serves both axes. `|| 0` normalises -0 to 0, as
-    // input.js's mousemove handler does.
-    const value = -delta / radius;
-    apply(value === 0 ? 0 : value);
+    // the same negation serves both axes.
+    apply(-delta / radius);
   }
 
   base.addEventListener('pointerdown', (e) => {
@@ -80,7 +78,7 @@ function makeStick(baseId, thumbId, axis, apply) {
   base.addEventListener('pointercancel', release);
 }
 
-makeStick('joystick', 'joyThumb', 'x', (v) => { input.steer = v; });
+makeStick('joystick', 'joyThumb', 'x', (v) => setSteer(v, 'touch'));
 // Pulling the throttle stick below centre goes negative, which car.js
 // already reads as brake-then-reverse.
-makeStick('throttleStick', 'throttleThumb', 'y', (v) => { input.throttle = v; });
+makeStick('throttleStick', 'throttleThumb', 'y', (v) => setThrottle(v, 'touch'));

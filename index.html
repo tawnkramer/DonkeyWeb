@@ -177,11 +177,13 @@
      opaque panels that COVER it instead. Hiding it would zero out its
      box, and resize() sizes the camera from that box -- so a resize
      while parked on a non-driving tab would poison the aspect ratio. */
-  #povwrap, #telem, #hint, #evalPanel, #recoverPanel{ display:none; }
+  #povwrap, #telem, #hint, #padToast, #evalPanel, #recoverPanel{ display:none; }
   #touch{ display:none; }
   body[data-mode="drive"] #povwrap, body[data-mode="eval"] #povwrap, body[data-mode="recover"] #povwrap{ display:block; }
   body[data-mode="drive"] #telem, body[data-mode="eval"] #telem, body[data-mode="recover"] #telem{ display:flex; }
   body[data-mode="drive"] #hint{ display:block; }
+  body[data-mode="drive"] #padToast, body[data-mode="eval"] #padToast,
+  body[data-mode="recover"] #padToast{ display:block; }
   body[data-mode="eval"] #evalPanel{ display:block; }
   body[data-mode="recover"] #recoverPanel{ display:block; }
   @media (pointer:coarse){ body[data-mode="drive"] #touch{ display:flex; } }
@@ -377,6 +379,17 @@
   }
   #hintClose:hover{color:#ff6b5e}
 
+  /* gamepad connect/disconnect notice -- same toast language as #hint,
+     parked at the bottom centre so it never covers the hint or the POV
+     feed. Starts hidden (.gone) and only ever appears if a pad shows up. */
+  #padToast{
+    left:50%;bottom:22px;transform:translateX(-50%);text-align:center;
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:8px;
+    padding:8px 16px;backdrop-filter:blur(6px);transition:opacity .6s;
+    font-size:11px;color:var(--dim);letter-spacing:.04em;white-space:nowrap;
+  }
+  #padToast.gone{opacity:0;pointer-events:none}
+
   /* touch controls (only shown on coarse pointers, Drive mode only):
      two analog sticks, left steers and right throttles. Both replaced
      on/off buttons -- see sim/joystick.js for why continuous input
@@ -466,7 +479,19 @@
     #telem{top:66px}
     #evalPanel, #recoverPanel{top:auto;bottom:18px;right:16px}
     #hint{top:150px}
+    /* lifted clear of the touch sticks, which own the bottom band here
+       (120px + the 18px screen-edge padding), and left to wrap rather
+       than run a long pad name off the side of a phone. */
+    #padToast{bottom:170px;white-space:normal;max-width:min(340px,86vw)}
     body[data-mode="eval"] #evalPanel.running{display:none}
+  }
+  /* Landscape phone: ~390px of height, and the hint block runs from 150px
+     down to where the sticks start -- there is no clear band left above
+     them, so the toast goes all the way down instead. It stays clear of
+     the sticks horizontally (they hug the two edges, it is centred).
+     Must come after the coarse block, which sets the lifted offset. */
+  @media (pointer:coarse) and (max-height:560px){
+    #padToast{bottom:8px}
   }
   @media (prefers-reduced-motion:reduce){ .rec.active::before{animation:none} }
 </style>
@@ -584,8 +609,11 @@
   <button id="hintClose" aria-label="dismiss">&times;</button>
   <h1>Take a lap</h1>
   <p>Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
+  Plug in a gamepad and just use it — whatever you touch last drives.<br>
   The small screen is exactly what your model will see.</p>
 </div>
+
+<div class="hud gone" id="padToast"></div>
 
 <div class="hud" id="telem">
   <span class="rec" id="telemRec" title="recording"></span>
