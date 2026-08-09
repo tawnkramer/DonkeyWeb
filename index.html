@@ -336,6 +336,10 @@
     #lossMetrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
     .lossMetric{padding:8px}
     .lossMetric .metric-value{font-size:16px}
+    #sampleBody{gap:10px}
+    #sampleCanvas{width:110px;height:82px}
+    #sampleTable{font-size:10.5px}
+    #sampleTable th, #sampleTable td{padding:3px 6px}
   }
   /* Full width under the chart rather than in the header's .t-status, which
      is a single ellipsised line: on a phone the batch/ETA/stall detail is
@@ -345,6 +349,19 @@
     font-variant-numeric:tabular-nums;line-height:1.4;
   }
   #trainProgress.warn{color:var(--cone)}
+  /* Same recorded/predicted frame steeringChart plots by index -- this is
+     just index 0 of that slice made concrete: the actual pixels the network
+     sees for one frame, and what it currently says about them. */
+  #trainSample{margin-top:14px}
+  #trainSample .t-label{display:block;margin-bottom:8px}
+  #sampleEpochTag{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
+  #sampleBody{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  #sampleCanvas{width:160px;height:120px;background:#000;border-radius:6px;image-rendering:pixelated;flex:0 0 auto}
+  #sampleTable{border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1;min-width:220px}
+  #sampleTable th, #sampleTable td{padding:4px 10px;text-align:right;font-variant-numeric:tabular-nums}
+  #sampleTable thead th{color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  #sampleTable tbody th{text-align:left;color:var(--dim);font-weight:500}
+  #sampleTable td:last-child{color:var(--cone)}
   #trainProfileRow{
     display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:0;
     font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);
@@ -638,6 +655,19 @@
     </label>
     <button id="trainBtn">train model</button>
     <div id="trainProgress"></div>
+    <div id="trainSample" hidden>
+      <span class="t-label">Sample frame<span id="sampleEpochTag"></span></span>
+      <div id="sampleBody">
+        <canvas id="sampleCanvas" aria-label="One recorded frame at model-input resolution, with its live prediction"></canvas>
+        <table id="sampleTable">
+          <thead><tr><th></th><th>recorded</th><th>predicted</th><th>error</th></tr></thead>
+          <tbody>
+            <tr><th>steer</th><td id="sampleSteerTarget">—</td><td id="sampleSteerPred">—</td><td id="sampleSteerErr">—</td></tr>
+            <tr><th>throttle</th><td id="sampleThrottleTarget">—</td><td id="sampleThrottlePred">—</td><td id="sampleThrottleErr">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
     <canvas id="lossChart" width="640" height="200"></canvas>
     <canvas id="steeringChart" width="640" height="160" aria-label="Recorded and predicted steering over 100 training frames"></canvas>
     <div id="lossMetrics" aria-live="polite">

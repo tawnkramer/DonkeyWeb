@@ -21,7 +21,7 @@ const CPU_BATCH = 16;
 let running = false;
 let stopRequested = false;
 
-function post(msg) { self.postMessage(msg); }
+function post(msg, transfer) { self.postMessage(msg, transfer); }
 
 self.onmessage = (e) => {
   const msg = e.data;
@@ -126,19 +126,34 @@ async function* batchesOf(records, indices, batchSize, augment) {
 
 // Keep one stable, readable window for the UI. It is sampled from the
 // training split (not validation) and re-predicted after every epoch so the
-// overlay shows the model learning the same examples over time.
+// overlay shows the model learning the same examples over time. targets/
+// predictions are steering (what the chart plots); the throttle arrays ride
+// along for the single-frame readout in the sample panel, index-aligned
+// with the same unshuffled `indices` order so index 0 is always the same
+// recorded frame across epochs.
 async function steeringSlice(model, records, indices) {
   const iterator = batchesOf(records, indices, indices.length, false);
   const { value } = await iterator.next();
   const prediction = model.predict(value.xs);
   const predictedSteer = Array.from(await prediction[0].data());
+  const predictedThrottle = Array.from(await prediction[1].data());
   const targetSteer = Array.from(await value.ys.n_outputs0.data());
+  const targetThrottle = Array.from(await value.ys.n_outputs1.data());
   value.xs.dispose();
   value.ys.n_outputs0.dispose();
   value.ys.n_outputs1.dispose();
   prediction[0].dispose();
   prediction[1].dispose();
-  return { targets: targetSteer, predictions: predictedSteer };
+  return { targets: targetSteer, predictions: predictedSteer, targetThrottle, predictedThrottle };
+}
+
+// Decodes the same single frame steeringSlice used for index 0 (unaugmented,
+// at model input resolution) and hands back a transferable bitmap -- "this
+// is exactly what the network saw" is the point, so no resizing beyond what
+// the model itself takes as input.
+async function sampleFrameBitmap(records, idx) {
+  await decodeFrame(records[idx].img, false);
+  return createImageBitmap(decodeCanvas);
 }
 
 async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE, modelUrl = LEGACY_MODEL_URL }) {
@@ -193,7 +208,13 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
           const valAccuracy = logs.val_n_outputs0_toleranceAccuracy;
           const slice = await steeringSlice(model, records, previewIdx);
           slice.epoch = epoch + 1;
-          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice });
+          const bitmap = await sampleFrameBitmap(records, previewIdx[0]);
+          const sample = {
+            target: { steer: slice.targets[0], throttle: slice.targetThrottle[0] },
+            prediction: { steer: slice.predictions[0], throttle: slice.predictedThrottle[0] },
+            bitmap,
+          };
+          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice, sample }, [bitmap]);
           if (stopRequested) model.stopTraining = true;
         },
       },

@@ -16,6 +16,7 @@ export const training = {
   epochLog: [],      // { epoch, loss, valLoss, valAccuracy, atBatch }
   valAccuracy: null,
   steeringSlice: null, // { epoch, targets, predictions } for the train UI
+  sample: null, // { bitmap, target: {steer,throttle}, prediction: {steer,throttle} }, one frame re-predicted each epoch
   elapsed: 0,
   stopped: false,
   error: null,
@@ -99,6 +100,10 @@ function onMessage({ data: m }) {
       training.epoch = m.epoch;
       training.valAccuracy = m.valAccuracy;
       training.steeringSlice = m.steeringSlice || null;
+      // Close the outgoing bitmap rather than letting it wait for GC -- each
+      // one holds decoded pixel memory, and a long run replaces it every epoch.
+      if (training.sample?.bitmap) training.sample.bitmap.close();
+      training.sample = m.sample || null;
       training.epochLog.push({ epoch: m.epoch, loss: m.loss, valLoss: m.valLoss, valAccuracy: m.valAccuracy, atBatch: m.atBatch });
       break;
     case 'done':
@@ -156,10 +161,11 @@ function ensureWorker() {
 
 export function trainStart(opts = {}) {
   if (training.state === 'loading' || training.state === 'running') return;
+  if (training.sample?.bitmap) training.sample.bitmap.close();
   Object.assign(training, {
     state: 'loading', detail: 'starting', backend: training.backend,
     epoch: 0, epochsTotal: 0, nTrain: 0, nVal: 0,
-    batchLosses: [], epochLog: [], valAccuracy: null, steeringSlice: null, elapsed: 0, stopped: false, error: null,
+    batchLosses: [], epochLog: [], valAccuracy: null, steeringSlice: null, sample: null, elapsed: 0, stopped: false, error: null,
     batchesTotal: 0, batchesPerSec: 0, quietFor: 0, phase: '',
     modelId: opts.modelId || null, modelUrl: opts.modelUrl || null,
   });

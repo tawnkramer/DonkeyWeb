@@ -19,6 +19,16 @@ const batchLossValue = document.getElementById('batchLossValue');
 const avgLossValue = document.getElementById('avgLossValue');
 const valLossValue = document.getElementById('valLossValue');
 const valAccuracyValue = document.getElementById('valAccuracyValue');
+const sampleWrap = document.getElementById('trainSample');
+const sampleEpochTag = document.getElementById('sampleEpochTag');
+const sampleCanvas = document.getElementById('sampleCanvas');
+const sampleCtx = sampleCanvas.getContext('2d');
+const sampleSteerTarget = document.getElementById('sampleSteerTarget');
+const sampleSteerPred = document.getElementById('sampleSteerPred');
+const sampleSteerErr = document.getElementById('sampleSteerErr');
+const sampleThrottleTarget = document.getElementById('sampleThrottleTarget');
+const sampleThrottlePred = document.getElementById('sampleThrottlePred');
+const sampleThrottleErr = document.getElementById('sampleThrottleErr');
 
 // A phone run is slow enough that a batch every 20s is normal, so silence
 // only becomes suspicious well past that.
@@ -154,10 +164,40 @@ function render() {
   renderMetrics();
   drawChart();
   drawSteeringChart();
+  drawSample();
 }
 
 function formatLoss(value) {
   return Number.isFinite(value) ? value.toFixed(4) : '—';
+}
+
+function formatSigned(value) {
+  return Number.isFinite(value) ? value.toFixed(3) : '—';
+}
+
+// The same frame steeringChart already plots at index 0 -- here as actual
+// pixels (exactly what the model's forward pass received) next to the
+// recorded/predicted/error numbers, so "the network is wrong here" has a
+// picture to point at instead of just a gap between two lines.
+function drawSample() {
+  const sample = training.sample;
+  sampleWrap.hidden = !sample;
+  if (!sample) return;
+  const { bitmap, target, prediction } = sample;
+  const maxW = 160;
+  const scale = maxW / bitmap.width;
+  sampleCanvas.width = bitmap.width;
+  sampleCanvas.height = bitmap.height;
+  sampleCanvas.style.width = `${maxW}px`;
+  sampleCanvas.style.height = `${Math.round(bitmap.height * scale)}px`;
+  sampleCtx.drawImage(bitmap, 0, 0);
+  sampleEpochTag.textContent = training.epoch ? ` · epoch ${training.epoch}` : '';
+  sampleSteerTarget.textContent = formatSigned(target.steer);
+  sampleSteerPred.textContent = formatSigned(prediction.steer);
+  sampleSteerErr.textContent = formatSigned(Math.abs(target.steer - prediction.steer));
+  sampleThrottleTarget.textContent = formatSigned(target.throttle);
+  sampleThrottlePred.textContent = formatSigned(prediction.throttle);
+  sampleThrottleErr.textContent = formatSigned(Math.abs(target.throttle - prediction.throttle));
 }
 
 function renderMetrics() {

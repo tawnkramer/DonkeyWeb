@@ -65,6 +65,36 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
     assert.ok(e.valAccuracy >= 0 && e.valAccuracy <= 1, `val accuracy out of range: ${JSON.stringify(e)}`);
   }
 
+  // The per-epoch sample frame: one recorded frame re-predicted every epoch
+  // for the Train tab's "sample / prediction / error" panel. Checked as
+  // booleans/numbers rather than returning the bitmap itself -- an
+  // ImageBitmap isn't meaningfully asserted on after crossing the CDP
+  // evaluate boundary.
+  const sample = await page.evaluate(() => {
+    const s = __sim.training.sample;
+    return s && {
+      hasBitmap: !!s.bitmap, w: s.bitmap && s.bitmap.width, h: s.bitmap && s.bitmap.height,
+      target: s.target, prediction: s.prediction,
+    };
+  });
+  assert.ok(sample, 'expected training.sample to be populated after training');
+  assert.ok(sample.hasBitmap, 'expected training.sample.bitmap to be present');
+  assert.equal(sample.w, 160, `sample bitmap should be the model's input width, got ${sample.w}`);
+  assert.equal(sample.h, 120, `sample bitmap should be the model's input height, got ${sample.h}`);
+  assert.ok(Number.isFinite(sample.target.steer) && Number.isFinite(sample.target.throttle),
+    `non-finite sample target: ${JSON.stringify(sample.target)}`);
+  assert.ok(Number.isFinite(sample.prediction.steer) && Number.isFinite(sample.prediction.throttle),
+    `non-finite sample prediction: ${JSON.stringify(sample.prediction)}`);
+
+  const sampleDom = await page.evaluate(() => ({
+    hidden: document.getElementById('trainSample').hidden,
+    steerTarget: document.getElementById('sampleSteerTarget').textContent,
+    steerPred: document.getElementById('sampleSteerPred').textContent,
+  }));
+  assert.equal(sampleDom.hidden, false, 'expected #trainSample to be shown once a sample exists');
+  assert.notEqual(sampleDom.steerTarget, '—', 'expected the sample panel to show a recorded steering value');
+  assert.notEqual(sampleDom.steerPred, '—', 'expected the sample panel to show a predicted steering value');
+
   const saved = await page.evaluate(() => new Promise((resolve) => {
     const req = indexedDB.open('tensorflowjs');
     req.onerror = () => resolve(null);
