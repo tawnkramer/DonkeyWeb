@@ -95,6 +95,87 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   assert.notEqual(sampleDom.steerTarget, '—', 'expected the sample panel to show a recorded steering value');
   assert.notEqual(sampleDom.steerPred, '—', 'expected the sample panel to show a predicted steering value');
 
+  // Gradient saliency, one map per output head. The substantive assertion is
+  // that the maps are not uniform: an all-zero map is what a broken gradient
+  // path produces (model.predict instead of model.apply, a backend missing a
+  // conv backprop kernel), and it would still be the right length and the
+  // right byte range, so length checks alone would pass a dead feature.
+  const saliency = await page.evaluate(() => {
+    const s = __sim.training.sample;
+    const stat = (m) => {
+      if (!m) return null;
+      let max = 0, nonZero = 0, outOfRange = 0;
+      for (const v of m) {
+        if (v > max) max = v;
+        if (v > 0) nonZero++;
+        if (v < 0 || v > 255) outOfRange++;
+      }
+      return { len: m.length, max, nonZero, outOfRange };
+    };
+    return { steer: stat(s && s.saliency && s.saliency.steer), throttle: stat(s && s.saliency && s.saliency.throttle) };
+  });
+  for (const head of ['steer', 'throttle']) {
+    const m = saliency[head];
+    assert.ok(m, `expected a ${head} saliency map on training.sample`);
+    assert.equal(m.len, 160 * 120, `${head} saliency should be one byte per input pixel, got ${m.len}`);
+    assert.equal(m.outOfRange, 0, `${head} saliency has bytes outside 0..255`);
+    assert.ok(m.max > 0, `${head} saliency is entirely zero -- the gradient path is broken`);
+    assert.ok(m.nonZero > m.len * 0.01,
+      `${head} saliency is nearly all zero (${m.nonZero}/${m.len} non-zero) -- expected a real gradient`);
+  }
+
+  // The overlay defaults to the steering head, and 'off' has to actually
+  // clear it -- the toggle is the only way back to the unobscured frame.
+  const overlay = await page.evaluate(() => {
+    const canvas = document.getElementById('sampleSaliency');
+    const pressed = () => [...document.querySelectorAll('.salBtn')]
+      .filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.sal);
+    const before = { hidden: canvas.hidden, pressed: pressed(), w: canvas.width, h: canvas.height };
+    document.querySelector('.salBtn[data-sal="off"]').click();
+    const off = { hidden: canvas.hidden, pressed: pressed() };
+    document.querySelector('.salBtn[data-sal="throttle"]').click();
+    return { before, off, throttle: { hidden: canvas.hidden, pressed: pressed() } };
+  });
+  assert.deepEqual(overlay.before.pressed, ['steer'], 'expected the steer head to be selected by default');
+  assert.equal(overlay.before.hidden, false, 'expected the saliency overlay to be visible by default');
+  assert.equal(overlay.before.w, 160, `overlay buffer should match the input width, got ${overlay.before.w}`);
+  assert.equal(overlay.before.h, 120, `overlay buffer should match the input height, got ${overlay.before.h}`);
+  assert.equal(overlay.off.hidden, true, 'expected "off" to hide the saliency overlay');
+  assert.deepEqual(overlay.off.pressed, ['off'], 'expected "off" to be the only pressed button');
+  assert.equal(overlay.throttle.hidden, false, 'expected selecting the throttle head to show the overlay again');
+  assert.deepEqual(overlay.throttle.pressed, ['throttle'], 'expected the throttle head to be the only pressed button');
+
+  // Enlarging is CSS-only, so the check that matters is that the drawing
+  // buffers are NOT resized with it -- rebuilding them at display size would
+  // resample the frame and quietly destroy the pixel-for-pixel registration
+  // between the overlay and the input it describes.
+  const zoom = await page.evaluate(() => {
+    const panel = document.getElementById('trainSample');
+    const frame = document.getElementById('sampleFrameWrap');
+    const base = document.getElementById('sampleCanvas');
+    const over = document.getElementById('sampleSaliency');
+    const snap = () => ({
+      zoomed: panel.classList.contains('zoomed'),
+      expanded: frame.getAttribute('aria-expanded'),
+      shown: Math.round(frame.getBoundingClientRect().width),
+      buffers: [base.width, base.height, over.width, over.height],
+    });
+    const before = snap();
+    frame.click();
+    const after = snap();
+    frame.click();
+    return { before, after, restored: snap() };
+  });
+  assert.equal(zoom.before.zoomed, false, 'expected the sample frame to start un-zoomed');
+  assert.equal(zoom.after.zoomed, true, 'expected clicking the frame to zoom it');
+  assert.equal(zoom.after.expanded, 'true', 'expected aria-expanded to track the zoom state');
+  assert.ok(zoom.after.shown > zoom.before.shown,
+    `expected zooming to widen the frame, got ${zoom.before.shown}px -> ${zoom.after.shown}px`);
+  assert.deepEqual(zoom.after.buffers, zoom.before.buffers,
+    `zooming must not resize the drawing buffers, got ${JSON.stringify(zoom.after.buffers)}`);
+  assert.equal(zoom.restored.zoomed, false, 'expected a second click to collapse the frame');
+  assert.equal(zoom.restored.expanded, 'false', 'expected aria-expanded to return to false');
+
   const saved = await page.evaluate(() => new Promise((resolve) => {
     const req = indexedDB.open('tensorflowjs');
     req.onerror = () => resolve(null);

@@ -325,8 +325,13 @@
   #dataStatus{font-size:10px;color:var(--dim)}
 
   #trainContent{width:100%;margin:0 auto}
-  #lossChart{display:block;width:100%;height:clamp(260px,45vh,560px);margin-top:8px;background:rgba(0,0,0,.25);border-radius:6px}
-  #steeringChart{display:block;width:100%;height:clamp(180px,30vh,320px);margin-top:18px;background:rgba(0,0,0,.25);border-radius:6px}
+  /* Section headers own the vertical rhythm between blocks now, so the
+     charts themselves sit flush under their own label rather than each
+     carrying a different top margin. */
+  .trainSection{display:block;margin-top:22px;margin-bottom:7px}
+  #trainSample .trainSection{margin-top:0} /* #trainSample already spaces itself */
+  #lossChart{display:block;width:100%;height:clamp(260px,45vh,560px);background:rgba(0,0,0,.25);border-radius:6px}
+  #steeringChart{display:block;width:100%;height:clamp(180px,30vh,320px);background:rgba(0,0,0,.25);border-radius:6px}
   #lossMetrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
   .lossMetric{padding:10px 12px;background:rgba(0,0,0,.2);border:1px solid var(--panel-line);border-radius:6px;min-width:0}
   .lossMetric .metric-label{display:block;color:var(--dim);font-size:9px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:5px}
@@ -337,9 +342,12 @@
     .lossMetric{padding:8px}
     .lossMetric .metric-value{font-size:16px}
     #sampleBody{gap:10px}
-    #sampleCanvas{width:110px;height:82px}
+    #sampleFrameWrap{width:110px}
+    #trainSample.zoomed #sampleFrameWrap{max-width:100%}
+    .explainBody{font-size:10.5px;line-height:1.6}
     #sampleTable{font-size:10.5px}
     #sampleTable th, #sampleTable td{padding:3px 6px}
+    .salBtn{padding:3px 7px;font-size:9px}
   }
   /* Full width under the chart rather than in the header's .t-status, which
      is a single ellipsised line: on a phone the batch/ETA/stall detail is
@@ -353,11 +361,74 @@
      just index 0 of that slice made concrete: the actual pixels the network
      sees for one frame, and what it currently says about them. */
   #trainSample{margin-top:14px}
-  #trainSample .t-label{display:block;margin-bottom:8px}
   #sampleEpochTag{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
   #sampleBody{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
-  #sampleCanvas{width:160px;height:120px;background:#000;border-radius:6px;image-rendering:pixelated;flex:0 0 auto}
-  #sampleTable{border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12px;flex:1;min-width:220px}
+  #sampleSide{flex:1;min-width:220px}
+  /* The wrapper carries the display width; the BASE canvas sits in normal
+     flow at height:auto so its own intrinsic ratio sets the box height --
+     which is what keeps this correct for both profiles (160x120 is 4:3,
+     tiny is square). The overlay is then pinned to that established box
+     with an explicit CSS size, for the replaced-element reason spelled out
+     up by #view: `inset:0` alone would leave it at its intrinsic pixel
+     size and hang the heatmap off the corner of the frame. */
+  #sampleFrameWrap{
+    position:relative;width:160px;flex:0 0 auto;line-height:0;
+    padding:0;border:0;background:none;cursor:zoom-in;border-radius:6px;
+  }
+  #sampleFrameWrap:focus-visible{outline:2px solid var(--cone);outline-offset:3px}
+  /* Zoomed: the frame takes the panel's full width and #sampleBody's
+     existing flex-wrap drops the numbers underneath on its own -- no
+     separate layout mode to keep in sync. 160x120 upscaled ~3.5x is where
+     individual input pixels become legible, which is the point of looking
+     at a saliency map closely; past that it is just bigger squares. */
+  #trainSample.zoomed #sampleFrameWrap{width:100%;max-width:560px;cursor:zoom-out}
+  #sampleCanvas{width:100%;height:auto;display:block;background:#000;border-radius:6px;image-rendering:pixelated}
+  #sampleSaliency{
+    position:absolute;inset:0;width:100%;height:100%;
+    border-radius:6px;image-rendering:pixelated;pointer-events:none;
+  }
+  #sampleSaliency[hidden]{display:none}
+  #saliencyControls{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .salLabel{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-right:2px}
+  .salBtn{
+    padding:3px 9px;border-radius:999px;border:1px solid var(--panel-line);
+    background:transparent;color:var(--dim);
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:10px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
+  }
+  .salBtn[aria-pressed="true"]{background:var(--cone);border-color:var(--cone);color:#1b1408}
+  /* Native <details> so the disclosure works with no JS and is keyboard
+     operable for free; the default triangle is replaced by the same '›'
+     rotation the nav menu sections use. */
+  /* Styled as a pill rather than a bare label: as small dim text under a
+     divider rule it read as a footer caption and went unnoticed entirely.
+     The '?' badge and the cone text are what make it legible as something
+     you can press -- it sits below the segmented steer/throttle/off group,
+     so it has to look interactive without joining that group. */
+  .explain{margin-top:12px}
+  .explain summary{
+    list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+    padding:5px 12px 5px 8px;border:1px solid var(--panel-line);border-radius:999px;
+    font-family:'Chakra Petch',sans-serif;font-weight:600;
+    font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--cone);
+  }
+  .explain summary::-webkit-details-marker{display:none}
+  .explain summary::before{
+    content:'?';display:grid;place-items:center;width:16px;height:16px;border-radius:50%;
+    background:var(--cone);color:#1b1408;font-size:11px;line-height:1;letter-spacing:0;
+  }
+  .explain summary::after{content:'›';font-size:15px;line-height:1;transition:transform .15s}
+  .explain[open] summary::after{transform:rotate(90deg)}
+  .explain summary:hover{border-color:var(--cone)}
+  .explain summary:focus-visible{outline:2px solid var(--cone);outline-offset:3px}
+  .explain[open]{
+    margin-top:14px;border-top:1px solid var(--panel-line);padding-top:12px;
+  }
+  .explainBody{margin-top:9px;font-size:11px;line-height:1.65;color:var(--dim);max-width:64ch}
+  .explainBody p + p{margin-top:8px}
+  .explainBody b{color:var(--text);font-weight:600}
+  .explainBody em{color:var(--cone);font-style:normal}
+  #sampleTable{border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:12px;width:100%}
   #sampleTable th, #sampleTable td{padding:4px 10px;text-align:right;font-variant-numeric:tabular-nums}
   #sampleTable thead th{color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
   #sampleTable tbody th{text-align:left;color:var(--dim);font-weight:500}
@@ -656,20 +727,126 @@
     <button id="trainBtn">train model</button>
     <div id="trainProgress"></div>
     <div id="trainSample" hidden>
-      <span class="t-label">Sample frame<span id="sampleEpochTag"></span></span>
+      <span class="t-label trainSection">Saliency map<span id="sampleEpochTag"></span></span>
       <div id="sampleBody">
-        <canvas id="sampleCanvas" aria-label="One recorded frame at model-input resolution, with its live prediction"></canvas>
-        <table id="sampleTable">
-          <thead><tr><th></th><th>recorded</th><th>predicted</th><th>error</th></tr></thead>
-          <tbody>
-            <tr><th>steer</th><td id="sampleSteerTarget">—</td><td id="sampleSteerPred">—</td><td id="sampleSteerErr">—</td></tr>
-            <tr><th>throttle</th><td id="sampleThrottleTarget">—</td><td id="sampleThrottlePred">—</td><td id="sampleThrottleErr">—</td></tr>
-          </tbody>
-        </table>
+        <button type="button" id="sampleFrameWrap" aria-expanded="false"
+                aria-label="Sample frame with saliency overlay — activate to enlarge">
+          <canvas id="sampleCanvas" aria-hidden="true"></canvas>
+          <canvas id="sampleSaliency" aria-hidden="true"></canvas>
+        </button>
+        <div id="sampleSide">
+          <table id="sampleTable">
+            <thead><tr><th></th><th>recorded</th><th>predicted</th><th>error</th></tr></thead>
+            <tbody>
+              <tr><th>steer</th><td id="sampleSteerTarget">—</td><td id="sampleSteerPred">—</td><td id="sampleSteerErr">—</td></tr>
+              <tr><th>throttle</th><td id="sampleThrottleTarget">—</td><td id="sampleThrottlePred">—</td><td id="sampleThrottleErr">—</td></tr>
+            </tbody>
+          </table>
+          <div id="saliencyControls" role="group" aria-label="Gradient saliency overlay">
+            <span class="salLabel">looking at</span>
+            <button type="button" class="salBtn" data-sal="steer" aria-pressed="true">steer</button>
+            <button type="button" class="salBtn" data-sal="throttle" aria-pressed="false">throttle</button>
+            <button type="button" class="salBtn" data-sal="off" aria-pressed="false">off</button>
+          </div>
+        </div>
       </div>
+      <details id="sampleExplain" class="explain">
+        <summary>Explain</summary>
+        <div class="explainBody">
+          <p><b>Brightness is influence.</b> Each pixel is lit by how much the
+          prediction would change if that pixel changed — the gradient of the
+          model's output with respect to the input image. Bright means the
+          pixel is load-bearing; dark means the model would say roughly the
+          same thing without it. It is recomputed every epoch, so the heat
+          moving around <em>is</em> the model changing its mind about what
+          matters.</p>
+
+          <p><b>steer and throttle are different questions.</b> Each button
+          shows the gradient of that one output over the same frame. A model
+          can steer off one feature and brake off another, and when the two
+          maps disagree that difference is the interesting part.</p>
+
+          <p><b>What good looks like:</b> heat gathered on the lane edges and
+          the road boundary ahead — roughly where you look when you drive.
+          <b>What to worry about:</b> heat on the sky, the car's hood, or one
+          piece of scenery. That is a shortcut that happens to correlate with
+          the right answer across your recorded laps, and it will not survive
+          a track the model has not seen. A falling loss curve cannot tell
+          these two apart; this can.</p>
+
+          <p><b>In the city,</b> put it on the throttle head as the car comes
+          up to a signal. If the model brakes for a red light but the heat
+          sits on the road surface instead of the light itself, it has learned
+          <em>where you happened to stop</em> rather than what the signal
+          means — and it will sail through the same light somewhere else.</p>
+
+          <p><b>Reading limits.</b> Brightness is scaled per frame against its
+          99th-percentile pixel, so a map shows where the model is looking
+          <em>within this frame</em> — not how strongly, and not comparably
+          between epochs or between the two heads. Raw gradients are also
+          noisy by nature: treat scattered speckle as noise and coherent
+          regions as signal.</p>
+        </div>
+      </details>
     </div>
+    <span class="t-label trainSection">Loss graph</span>
     <canvas id="lossChart" width="640" height="200"></canvas>
+    <details id="lossExplain" class="explain">
+      <summary>Explain</summary>
+      <div class="explainBody">
+        <p><b>Loss is how wrong the model is</b> — the mean squared error
+        between what it predicted and what you actually did. Lower is better,
+        and the only number that means anything is the trend.</p>
+
+        <p><b>The thin pale line is training loss,</b> one point per batch, so
+        it is jagged by nature: each batch is a different random handful of
+        frames and some are harder than others. Watch its downward drift, not
+        its spikes. <b>The orange line and dots are validation loss,</b> one
+        per epoch, measured on frames held out of training that the model
+        never got to learn from.</p>
+
+        <p><b>The y-axis is logarithmic.</b> Loss improves by shrinking toward
+        zero in ever smaller absolute steps, and on a linear axis all the
+        interesting late progress would be squashed flat against the bottom.
+        Equal vertical distance here means equal <em>proportional</em>
+        improvement.</p>
+
+        <p><b>The shape to look for:</b> both lines falling together. If the
+        pale line keeps dropping while the orange one flattens or turns
+        upward, that is <em>overfitting</em> — the model is memorising your
+        specific recorded frames rather than learning to drive, and it will
+        be worse on the track than the training loss suggests. Stop early and
+        record more varied laps.</p>
+      </div>
+    </details>
+    <span class="t-label trainSection">Steering fit</span>
     <canvas id="steeringChart" width="640" height="160" aria-label="Recorded and predicted steering over 100 training frames"></canvas>
+    <details id="steeringExplain" class="explain">
+      <summary>Explain</summary>
+      <div class="explainBody">
+        <p><b>This is the model driving, next to you driving.</b> The pale
+        line is the steering you recorded across 100 frames; the orange line
+        is what the model predicts for those same 100 frames, re-run after
+        every epoch. The gap between them is the error you are training away,
+        frame by frame, instead of collapsed into a single number.</p>
+
+        <p><b>It is the same 100 frames every epoch,</b> taken from the
+        training split in recorded order, so the two lines stay comparable
+        as the run progresses. Watch the orange line start flat near zero and
+        gradually grow into the shape of the pale one.</p>
+
+        <p><b>Where it stays wrong is the useful part.</b> A model that tracks
+        the straights but flattens out the sharp corners has learned the easy
+        majority of your data and skipped the rest — the corners are
+        outnumbered, so averaging them away is a cheap way to lower loss.
+        That usually means recording more of whatever it is missing.</p>
+
+        <p><b>An orange line pinned near zero</b> while the pale one swings is
+        the degenerate case: predicting the average of everything is the
+        safest possible guess, and a model that has not learned anything yet
+        will find it first. It should not still be there by the last epoch.</p>
+      </div>
+    </details>
     <div id="lossMetrics" aria-live="polite">
       <div class="lossMetric"><span class="metric-label">Batch loss</span><span class="metric-value" id="batchLossValue">—</span></div>
       <div class="lossMetric"><span class="metric-label">Avg train loss</span><span class="metric-value" id="avgLossValue">—</span></div>

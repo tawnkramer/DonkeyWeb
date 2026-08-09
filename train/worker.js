@@ -147,13 +147,71 @@ async function steeringSlice(model, records, indices) {
   return { targets: targetSteer, predictions: predictedSteer, targetThrottle, predictedThrottle };
 }
 
+// Vanilla gradient saliency: d(output)/d(input pixel), absolute value, maxed
+// over the three colour channels. It answers "which pixels would move this
+// number most if they changed", which is the question actually worth asking
+// of a behaviour-cloned driver -- a model can reach a good loss by reading
+// the wrong thing (the hood, a scenery landmark that happens to correlate
+// with a corner) and the loss curve cannot tell you that. For the city
+// specifically: a throttle head that brakes at a red light but has all its
+// gradient on the road surface rather than the signal has learned a
+// coincidence, and will not transfer to a light in a different place.
+//
+// model.apply rather than model.predict -- predict runs the forward pass
+// without a gradient tape, so tf.grad through it yields nothing. Dropout is
+// forced off so the map describes the deployed network, not one random
+// thinned copy of it.
+function saliencyFor(model, x, head) {
+  return tf.tidy(() => {
+    const grads = tf.grad(inp => model.apply(inp, { training: false })[head].sum())(x);
+    return grads.abs().max(3).squeeze([0]);
+  });
+}
+
+// Scaled against the 99th percentile rather than the max. These maps
+// reliably contain a few blown-out pixels, and dividing by the largest of
+// them flattens the entire rest of the image to invisible; anything above
+// the percentile just clamps. Quantised to bytes because it is a heatmap --
+// 8 bits is well past what the eye resolves here, and it halves what
+// crosses the postMessage boundary every epoch.
+function normalizeSaliency(values) {
+  const sorted = Float32Array.from(values).sort();
+  const p99 = sorted[Math.floor(sorted.length * 0.99)] || sorted[sorted.length - 1];
+  const out = new Uint8Array(values.length);
+  if (!(p99 > 0)) return out; // an all-zero gradient (dead net) stays all-zero
+  for (let i = 0; i < values.length; i++) {
+    out[i] = Math.min(255, Math.round((values[i] / p99) * 255));
+  }
+  return out;
+}
+
 // Decodes the same single frame steeringSlice used for index 0 (unaugmented,
 // at model input resolution) and hands back a transferable bitmap -- "this
 // is exactly what the network saw" is the point, so no resizing beyond what
-// the model itself takes as input.
-async function sampleFrameBitmap(records, idx) {
-  await decodeFrame(records[idx].img, false);
-  return createImageBitmap(decodeCanvas);
+// the model itself takes as input. The same decode feeds the saliency pass,
+// so the heatmap is registered pixel-for-pixel with the thumbnail it is
+// drawn over rather than being a second, subtly different decode.
+async function sampleFrame(model, records, idx) {
+  const rgba = await decodeFrame(records[idx].img, false);
+  const bitmap = await createImageBitmap(decodeCanvas);
+  const px = new Uint8Array(H * W * C);
+  let dst = 0;
+  for (let p = 0; p < rgba.length; p += 4) {
+    px[dst++] = rgba[p];
+    px[dst++] = rgba[p + 1];
+    px[dst++] = rgba[p + 2];
+  }
+  const x = tf.tidy(() => tf.tensor4d(px, [1, H, W, C]).div(255));
+  const steerMap = saliencyFor(model, x, 0);
+  const throttleMap = saliencyFor(model, x, 1);
+  const [steerVals, throttleVals] = await Promise.all([steerMap.data(), throttleMap.data()]);
+  steerMap.dispose();
+  throttleMap.dispose();
+  x.dispose();
+  return {
+    bitmap, w: W, h: H,
+    saliency: { steer: normalizeSaliency(steerVals), throttle: normalizeSaliency(throttleVals) },
+  };
 }
 
 async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE, modelUrl = LEGACY_MODEL_URL }) {
@@ -208,13 +266,14 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
           const valAccuracy = logs.val_n_outputs0_toleranceAccuracy;
           const slice = await steeringSlice(model, records, previewIdx);
           slice.epoch = epoch + 1;
-          const bitmap = await sampleFrameBitmap(records, previewIdx[0]);
+          const frame = await sampleFrame(model, records, previewIdx[0]);
           const sample = {
             target: { steer: slice.targets[0], throttle: slice.targetThrottle[0] },
             prediction: { steer: slice.predictions[0], throttle: slice.predictedThrottle[0] },
-            bitmap,
+            ...frame,
           };
-          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice, sample }, [bitmap]);
+          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice, sample },
+            [frame.bitmap, frame.saliency.steer.buffer, frame.saliency.throttle.buffer]);
           if (stopRequested) model.stopTraining = true;
         },
       },

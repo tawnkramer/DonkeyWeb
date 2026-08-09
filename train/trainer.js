@@ -16,7 +16,11 @@ export const training = {
   epochLog: [],      // { epoch, loss, valLoss, valAccuracy, atBatch }
   valAccuracy: null,
   steeringSlice: null, // { epoch, targets, predictions } for the train UI
-  sample: null, // { bitmap, target: {steer,throttle}, prediction: {steer,throttle} }, one frame re-predicted each epoch
+  // One frame re-predicted each epoch, plus per-head gradient saliency over
+  // the same pixels: { bitmap, w, h, target: {steer,throttle},
+  // prediction: {steer,throttle}, saliency: { steer, throttle } }, where each
+  // saliency map is a Uint8Array of w*h bytes in row-major order.
+  sample: null,
   elapsed: 0,
   stopped: false,
   error: null,

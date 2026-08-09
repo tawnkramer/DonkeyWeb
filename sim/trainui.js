@@ -23,6 +23,10 @@ const sampleWrap = document.getElementById('trainSample');
 const sampleEpochTag = document.getElementById('sampleEpochTag');
 const sampleCanvas = document.getElementById('sampleCanvas');
 const sampleCtx = sampleCanvas.getContext('2d');
+const saliencyCanvas = document.getElementById('sampleSaliency');
+const saliencyCtx = saliencyCanvas.getContext('2d');
+const saliencyBtns = [...document.querySelectorAll('.salBtn')];
+const sampleFrameWrap = document.getElementById('sampleFrameWrap');
 const sampleSteerTarget = document.getElementById('sampleSteerTarget');
 const sampleSteerPred = document.getElementById('sampleSteerPred');
 const sampleSteerErr = document.getElementById('sampleSteerErr');
@@ -175,22 +179,75 @@ function formatSigned(value) {
   return Number.isFinite(value) ? value.toFixed(3) : '—';
 }
 
+// Which head's saliency is on show. Defaults to steering rather than off
+// because an overlay nobody discovers is worth nothing, and alpha keeps the
+// frame readable underneath -- 'off' is there for when you want the raw
+// pixels back.
+let saliencyMode = 'steer';
+for (const b of saliencyBtns) {
+  b.addEventListener('click', () => {
+    saliencyMode = b.dataset.sal;
+    for (const other of saliencyBtns) other.setAttribute('aria-pressed', String(other === b));
+    drawSample();
+  });
+}
+
+// Enlarging is a class on the panel, not a redraw: both canvases keep their
+// drawing buffers at the model's input resolution and CSS scales them, so
+// zooming costs nothing and stays sharp-edged (image-rendering:pixelated) --
+// you are meant to see the actual input pixels, not a smoothed guess at
+// what is between them.
+sampleFrameWrap.addEventListener('click', () => {
+  const zoomed = sampleWrap.classList.toggle('zoomed');
+  sampleFrameWrap.setAttribute('aria-expanded', String(zoomed));
+});
+
+// Heat ramp: transparent at zero, cone orange through the middle, white at
+// the peak. Alpha carries most of the signal deliberately -- the point of
+// the overlay is seeing WHICH part of the image the gradient sits on, which
+// fails if a solid colour hides the road underneath it.
+function heatInto(out, p, t) {
+  const hot = Math.max(0, t - 0.65) / 0.35; // whitening ramp for the top third
+  out[p] = 255;
+  out[p + 1] = Math.round(106 + 149 * hot);
+  out[p + 2] = Math.round(43 + 212 * hot);
+  out[p + 3] = Math.round(230 * t);
+}
+
+function drawSaliency(sample) {
+  const map = saliencyMode !== 'off' && sample.saliency && sample.saliency[saliencyMode];
+  saliencyCanvas.hidden = !map;
+  if (!map) return;
+  const w = sample.w || sample.bitmap.width, h = sample.h || sample.bitmap.height;
+  if (saliencyCanvas.width !== w || saliencyCanvas.height !== h) {
+    saliencyCanvas.width = w;
+    saliencyCanvas.height = h;
+  }
+  const img = saliencyCtx.createImageData(w, h);
+  for (let i = 0, p = 0; i < map.length; i++, p += 4) heatInto(img.data, p, map[i] / 255);
+  saliencyCtx.putImageData(img, 0, 0);
+}
+
 // The same frame steeringChart already plots at index 0 -- here as actual
 // pixels (exactly what the model's forward pass received) next to the
 // recorded/predicted/error numbers, so "the network is wrong here" has a
-// picture to point at instead of just a gap between two lines.
+// picture to point at instead of just a gap between two lines. The saliency
+// overlay goes one step further: not just that it is wrong, but what it was
+// looking at when it got it wrong.
 function drawSample() {
   const sample = training.sample;
   sampleWrap.hidden = !sample;
   if (!sample) return;
   const { bitmap, target, prediction } = sample;
-  const maxW = 160;
-  const scale = maxW / bitmap.width;
-  sampleCanvas.width = bitmap.width;
-  sampleCanvas.height = bitmap.height;
-  sampleCanvas.style.width = `${maxW}px`;
-  sampleCanvas.style.height = `${Math.round(bitmap.height * scale)}px`;
+  // Display size is CSS's job now (see #sampleFrameWrap) -- these are the
+  // drawing buffer, which must stay at the model's true input resolution
+  // for the overlay to line up with it pixel for pixel.
+  if (sampleCanvas.width !== bitmap.width || sampleCanvas.height !== bitmap.height) {
+    sampleCanvas.width = bitmap.width;
+    sampleCanvas.height = bitmap.height;
+  }
   sampleCtx.drawImage(bitmap, 0, 0);
+  drawSaliency(sample);
   sampleEpochTag.textContent = training.epoch ? ` · epoch ${training.epoch}` : '';
   sampleSteerTarget.textContent = formatSigned(target.steer);
   sampleSteerPred.textContent = formatSigned(prediction.steer);
