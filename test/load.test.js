@@ -67,8 +67,16 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
 
   assert.deepEqual(panels.map((p) => p.id), ['sampleExplain', 'lossExplain', 'steeringExplain'],
     'expected an Explain panel under the sample frame, the loss chart, and the steering chart');
+  // Each button names its own section rather than saying a bare "Explain":
+  // three identical controls down one scrolling page give no clue which
+  // chart the prose that unfolds is about.
+  const labels = {
+    sampleExplain: 'Explain saliency map',
+    lossExplain: 'Explain loss graph',
+    steeringExplain: 'Explain steering fit',
+  };
   for (const p of panels) {
-    assert.equal(p.label, 'Explain', `${p.id}: unexpected summary label`);
+    assert.equal(p.label, labels[p.id], `${p.id}: unexpected summary label`);
     assert.ok(p.onScreen, `${p.id}: not rendered -- it is under a hidden ancestor`);
     assert.ok(p.w > 60 && p.h > 16, `${p.id}: expected a pressable-sized control, got ${p.w}x${p.h}px`);
     // Collapsed by default: the charts and numbers are the panel's job, and
