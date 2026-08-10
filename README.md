@@ -4,6 +4,9 @@ Browser-first [donkeycar](https://www.donkeycar.com/): drive, train, and run
 autopilot -- entirely client-side, no installs, no Python environment, no
 GPU drivers to set up.
 
+**Try it now: <https://tawnkramer.github.io/DonkeyWeb/>** -- nothing to
+install; it runs in the tab you open it in.
+
 A small three.js sim stands in for a real donkeycar and track. You drive it
 by hand, record the driving as training data, train a real convolutional
 network (TensorFlow.js) on that data right in the tab, then watch the model
@@ -45,8 +48,8 @@ plain static files, and the only two third-party libraries it needs
 (three.js, TensorFlow.js) are already vendored into `/vendor`.
 
 ```bash
-git clone https://github.com/<you>/donkey-web.git
-cd donkey-web
+git clone https://github.com/tawnkramer/DonkeyWeb.git
+cd DonkeyWeb
 node test/serve.js        # or: ./scripts/serve.sh
 ```
 
@@ -75,12 +78,41 @@ Since there's no build step, GitHub can serve this repo as-is:
 1. Push the repo to GitHub.
 2. In **Settings -> Pages**, set Source to "Deploy from a branch", branch
    `main`, folder `/ (root)`.
-3. GitHub publishes it at `https://<you>.github.io/<repo>/`.
+3. GitHub publishes it at `https://<you>.github.io/<repo>/`. There is no
+   build step to wait on, so a push is the deploy -- this repo is live at
+   <https://tawnkramer.github.io/DonkeyWeb/>.
 
 The repo already has a `.nojekyll` file (so GitHub doesn't run its default
 Jekyll processing over the app's files) and every path in the app is
 relative to `index.html`, so it works both at a domain root and at a
 project-page subpath like the one above.
+
+### Where your recordings live
+
+Recorded laps and trained models are kept in the browser's IndexedDB, which
+is scoped to the **origin** -- scheme, host and port together. Every way of
+reaching the app is therefore a separate, independent store:
+
+| Origin | What it holds |
+|---|---|
+| `http://localhost:8734` | laps recorded on the dev server |
+| `http://192.168.x.x:8734` | laps recorded from a phone on the same LAN |
+| `https://tawnkramer.github.io/DonkeyWeb/` | laps recorded from the published site |
+
+Nothing moves between them. Driving on your laptop and then opening the same
+dev server from your phone gives you an empty tub, and that is working as
+intended rather than data loss. To carry a dataset across, use **dataset ->
+save dataset** to export a ZIP and **load dataset** on the other side.
+
+Storage is also not guaranteed to be permanent. Browsers class it as "best
+effort" by default and may reclaim it wholesale when the disk runs low --
+silently, losing every lap. The app asks for persistent storage on startup
+(`requestPersistence()` in `data/db.js`), which exempts it from that
+automatic eviction; browsers usually grant this on `localhost` and on a real
+HTTPS origin, and the console says so if the request is declined. A published
+HTTPS page is the best protected of the three above. None of it survives a
+genuinely full disk, and none of it replaces exporting anything you would be
+upset to lose.
 
 ## Controls
 
