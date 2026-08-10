@@ -4,7 +4,9 @@ import { tub } from '../data/tub.js';
 import {
   onSampleFrame, sampleFrame, setSampleProfile, showFrame,
 } from './sampleframe.js';
-import { createUserModel, modelStorageKey, setActiveModelId } from '../train/models.js';
+import {
+  deleteUserModel, modelStorageKey, newModelId, setActiveModelId, setUserModel,
+} from '../train/models.js';
 import { dismissHint } from './input.js';
 
 // ---------- train panel ----------
@@ -88,12 +90,19 @@ btn.addEventListener('click', async () => {
   else {
     hiddenWhileBusy = false;
     const profile = profileSelect.value;
-    const model = await createUserModel({
-      name: `Trained ${profile} model`,
+    // The worker needs somewhere to save before it has anything to save, so
+    // the record has to exist up front. It is flagged `pending` so that a run
+    // which never reaches a save is identifiable afterwards as wreckage
+    // rather than as a model -- see the onTraining handler below.
+    const model = await setUserModel({
+      id: newModelId(),
+      name: trainedModelName(profile),
       source: 'trained',
       profile,
       input: `${PROFILES[profile].w}×${PROFILES[profile].h}`,
+      pending: true,
     });
+    pendingModel = model;
     setActiveModelId(model.id);
     trainStart({
       profile,
@@ -105,6 +114,40 @@ btn.addEventListener('click', async () => {
       // the picker working with no model loaded.
       sampleId: sampleFrame.frame?.id ?? null,
     });
+  }
+});
+
+// Every trained model used to be called "Trained linear model", so a list of
+// them carried no information at all -- you could not tell this morning's
+// good one from the four you made while tuning. The timestamp is local and
+// minute-resolution, which is enough to tell a session apart from itself.
+export function trainedModelName(profile) {
+  const when = new Date().toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  return `${profile} · ${when}`;
+}
+
+// The record stays visible from the moment it is created, exactly as before:
+// hiding it until 'done' would race pilotui, which loads the newly trained
+// model on the same event and would look for it before the write landed.
+// What changes is only what happens when a run does NOT finish.
+//
+// `pending` is a crash marker, not a visibility flag. It is cleared here on
+// success; a record still carrying it at the next page load belongs to a run
+// that died without saving, and pruneDeadModels() collects it.
+let pendingModel = null;
+onTraining((t) => {
+  if (!pendingModel) return;
+  const record = pendingModel;
+  if (t.state === 'done') {
+    // The worker awaits model.save() before posting 'done', so the weights
+    // are on disk by the time this runs.
+    pendingModel = null;
+    setUserModel({ ...record, pending: false }).catch(() => {});
+  } else if (t.state === 'error') {
+    pendingModel = null;
+    deleteUserModel(record.id).catch(() => {});
   }
 });
 

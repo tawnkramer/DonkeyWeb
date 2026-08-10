@@ -21,6 +21,12 @@ export function modelStorageKey(id) {
   return `indexeddb://donkeyweb-user-${id}`;
 }
 
+export function newModelId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export async function listModels() {
   const users = await dbModelGetAll();
   let builtin = BUILTIN_MODEL;
@@ -60,8 +66,28 @@ export async function setUserModel(record) {
 }
 
 export async function createUserModel({ name = 'Trained model', source = 'trained', ...extra } = {}) {
-  const id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  return setUserModel({ id, name, source, ...extra });
+  return setUserModel({ id: newModelId(), name, source, ...extra });
+}
+
+// Drops user models with nothing behind them: weights that were never
+// written, or a record still flagged `pending` because the run that owned it
+// never reached a save. Both are the same failure -- pressing train and not
+// getting to model.save(), most often the "need 50+ frames" error one button
+// press away -- and both used to leave a permanent entry in the picker named
+// identically to every real model, which could not be loaded and could only
+// be deleted one at a time.
+//
+// A record is written before the worker has anything to put in it (it needs
+// the storage key), so "no artifacts" is only evidence of death once no run
+// can be in flight. Hence once per page load, from ensureModelMetadata,
+// which runs long before anything can have been trained this session.
+export async function pruneDeadModels(tf) {
+  const stored = await tf.io.listModels();
+  const dead = (await dbModelGetAll())
+    .filter((model) => model.pending || !stored[model.storageKey]);
+  for (const model of dead) await dbModelDelete(model.id);
+  if (dead.some((model) => model.id === getActiveModelId())) setActiveModelId(BUILTIN_MODEL.id);
+  return dead.length;
 }
 
 export async function deleteUserModel(id) {
@@ -73,7 +99,12 @@ export async function deleteUserModel(id) {
 
 // Existing releases used one unnamed user slot. Preserve it as a selectable
 // user model rather than silently replacing it with the website example.
+let pruned = false;
 export async function ensureModelMetadata(tf) {
+  if (!pruned) {
+    pruned = true; // set before awaiting, so concurrent callers prune once
+    await pruneDeadModels(tf);
+  }
   const users = await dbModelGetAll();
   if (users.some(model => model.storageKey === LEGACY_MODEL_KEY)) return;
   const available = await tf.io.listModels();
