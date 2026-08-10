@@ -70,17 +70,25 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   // booleans/numbers rather than returning the bitmap itself -- an
   // ImageBitmap isn't meaningfully asserted on after crossing the CDP
   // evaluate boundary.
+  // The picture is the page's own -- decoded from the tub, never shipped
+  // through the worker -- so the canvas is what proves it rendered, and its
+  // buffer must be the model's input size for the overlay to register with
+  // it. The worker's half of the panel is the id it explained plus the
+  // reading for it.
   const sample = await page.evaluate(() => {
     const s = __sim.training.sample;
+    const frame = __sim.tub.frames.find((f) => f.id === (s && s.id));
     return s && {
-      hasBitmap: !!s.bitmap, w: s.bitmap && s.bitmap.width, h: s.bitmap && s.bitmap.height,
-      target: s.target, prediction: s.prediction,
+      id: s.id, prediction: s.prediction, hasSaliency: !!s.saliency,
+      knownFrame: !!frame, target: frame && { steer: frame.steer, throttle: frame.throttle },
+      canvasW: document.getElementById('sampleCanvas').width,
+      canvasH: document.getElementById('sampleCanvas').height,
     };
   });
   assert.ok(sample, 'expected training.sample to be populated after training');
-  assert.ok(sample.hasBitmap, 'expected training.sample.bitmap to be present');
-  assert.equal(sample.w, 160, `sample bitmap should be the model's input width, got ${sample.w}`);
-  assert.equal(sample.h, 120, `sample bitmap should be the model's input height, got ${sample.h}`);
+  assert.ok(sample.knownFrame, `training.sample.id ${sample.id} is not a frame in the tub`);
+  assert.equal(sample.canvasW, 160, `sample canvas should be the model's input width, got ${sample.canvasW}`);
+  assert.equal(sample.canvasH, 120, `sample canvas should be the model's input height, got ${sample.canvasH}`);
   assert.ok(Number.isFinite(sample.target.steer) && Number.isFinite(sample.target.throttle),
     `non-finite sample target: ${JSON.stringify(sample.target)}`);
   assert.ok(Number.isFinite(sample.prediction.steer) && Number.isFinite(sample.prediction.throttle),
@@ -145,6 +153,13 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
   assert.equal(overlay.throttle.hidden, false, 'expected selecting the throttle head to show the overlay again');
   assert.deepEqual(overlay.throttle.pressed, ['throttle'], 'expected the throttle head to be the only pressed button');
 
+  // Everything above reads state and text, which survives a hidden screen.
+  // This block reads geometry, and it is the only one that does: the test
+  // drives training through __sim.trainStart without ever opening the Train
+  // screen, and #screenTrain is display:none until you do, so every element
+  // inside it measures 0x0.
+  await page.click('.navbtn[data-mode="train"]');
+
   // Enlarging is CSS-only, so the check that matters is that the drawing
   // buffers are NOT resized with it -- rebuilding them at display size would
   // resample the frame and quietly destroy the pixel-for-pixel registration
@@ -175,6 +190,114 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
     `zooming must not resize the drawing buffers, got ${JSON.stringify(zoom.after.buffers)}`);
   assert.equal(zoom.restored.zoomed, false, 'expected a second click to collapse the frame');
   assert.equal(zoom.restored.expanded, 'false', 'expected aria-expanded to return to false');
+
+  // The panel must not open on an arbitrary frame. This run was started
+  // through __sim.trainStart rather than the button, so no frame was picked
+  // for it and the worker falls back to its own rule: the sharpest turn in
+  // the recording. A frame with no steering in it has no decision to explain,
+  // and on a mostly-straight track that is what frame 0 usually was.
+  const opening = await page.evaluate(() => {
+    const frames = __sim.tub.frames;
+    let sharpest = 0;
+    for (let i = 1; i < frames.length; i++) {
+      if (Math.abs(frames[i].steer) > Math.abs(frames[sharpest].steer)) sharpest = i;
+    }
+    let flattest = 0;
+    for (let i = 1; i < frames.length; i++) {
+      if (Math.abs(frames[i].steer) < Math.abs(frames[flattest].steer)) flattest = i;
+    }
+    return {
+      id: __sim.training.sample.id,
+      count: frames.length,
+      sharpestId: frames[sharpest].id,
+      flattest, flattestId: frames[flattest].id, flattestSteer: frames[flattest].steer,
+      slider: document.getElementById('sampleFrameSlider').value,
+      tag: document.getElementById('sampleFrameTag').textContent,
+    };
+  });
+  assert.equal(opening.id, opening.sharpestId,
+    `expected to open on the sharpest-steering frame (id ${opening.sharpestId}), got id ${opening.id}`);
+  assert.equal(opening.tag, `${Number(opening.slider) + 1} / ${opening.count}`,
+    `expected the frame tag to count the whole recording, got "${opening.tag}"`);
+
+  // Scrubbing round-trips through the worker's on-demand path, which only
+  // exists because the model is held past the end of fit -- reading saliency
+  // maps is something you do after a run, not during it. Picking the
+  // least-steering frame guarantees it is a different one from the opener.
+  await page.evaluate((target) => {
+    const slider = document.getElementById('sampleFrameSlider');
+    slider.value = String(target);
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+  }, opening.flattest);
+
+  // The picture and the recorded numbers are the page's own and owe the
+  // worker nothing, so they must be right before any message comes back.
+  const drawn = await page.evaluate((wantSteer) => new Promise((resolve) => {
+    // One frame of grace for the decode, which is a dbGet plus an
+    // ImageBitmap resize -- still no worker involved.
+    const started = performance.now();
+    const poll = () => {
+      const dom = document.getElementById('sampleSteerTarget').textContent;
+      if (dom === wantSteer.toFixed(3) || performance.now() - started > 5000) {
+        resolve({
+          dom, tag: document.getElementById('sampleFrameTag').textContent,
+          ms: Math.round(performance.now() - started),
+        });
+      } else setTimeout(poll, 10);
+    };
+    poll();
+  }), opening.flattestSteer);
+  assert.equal(drawn.dom, opening.flattestSteer.toFixed(3),
+    'expected the recorded numbers to follow the slider without waiting on the worker');
+  assert.equal(drawn.tag, `${opening.flattest + 1} / ${opening.count}`,
+    `expected the frame tag to read the new position, got "${drawn.tag}"`);
+
+  const backend = await page.evaluate(() => __sim.training.backend);
+  await waitFor(page, (want) => __sim.training.sample.id === want, {
+    timeout: 20000,
+    args: [opening.flattestId],
+    // Naming the backend here because the way this breaks is the worker
+    // being gone rather than slow: a cpu-backend run used to terminate it as
+    // soon as the run finished, which killed the slider with it.
+    message: `worker never answered the frame-slider request (backend: ${backend})`,
+  });
+  // Read the instant the prediction lands, before waiting on the maps: the
+  // whole point of the split is that the reading is usable while the gradient
+  // passes are still running, so a sample that only ever arrived complete
+  // would pass the assertions below while having lost what they protect.
+  const scrubbed = await page.evaluate(() => ({
+    id: __sim.training.sample.id,
+    predicted: __sim.training.sample.prediction.steer,
+    dom: document.getElementById('sampleSteerPred').textContent,
+  }));
+  assert.equal(scrubbed.id, opening.flattestId, 'expected the worker to answer for the requested frame');
+  assert.ok(Number.isFinite(scrubbed.predicted),
+    'expected the prediction to arrive ahead of the maps');
+  assert.notEqual(scrubbed.dom, '—', 'expected the predicted column to fill in from the reading');
+
+  // ...and then the maps catch up on their own message.
+  await waitFor(page, () => !!__sim.training.sample.saliency, {
+    timeout: 20000,
+    message: 'saliency maps never followed the scrubbed frame',
+  });
+  const maps = await page.evaluate(() => {
+    const m = __sim.training.sample.saliency.steer;
+    let nonZero = 0;
+    for (const v of m) if (v > 0) nonZero++;
+    return {
+      nonZero, len: m.length,
+      id: __sim.training.sample.id,
+      overlayHidden: document.getElementById('sampleSaliency').hidden,
+      pendingHidden: document.getElementById('saliencyPending').hidden,
+    };
+  });
+  assert.equal(maps.id, opening.flattestId, 'maps arrived against the wrong frame');
+  assert.ok(maps.nonZero > maps.len * 0.01,
+    `scrubbed frame came back with a dead saliency map (${maps.nonZero}/${maps.len} non-zero)`);
+  assert.equal(maps.overlayHidden, false, 'expected the overlay to be drawn once its maps arrived');
+  assert.equal(maps.pendingHidden, true, 'expected the "computing" hint to clear once the maps arrived');
+
+  await page.click('.navbtn[data-mode="drive"]');
 
   const saved = await page.evaluate(() => new Promise((resolve) => {
     const req = indexedDB.open('tensorflowjs');

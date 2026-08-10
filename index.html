@@ -389,7 +389,20 @@
   }
   #sampleSaliency[hidden]{display:none}
   #saliencyControls{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+  /* The frame picker scrubs the same 100 preview frames the steering chart
+     plots, so slider position and chart x-position mean the same thing --
+     scrub to where the two lines diverge to see that exact frame. */
+  #frameControls{display:flex;align-items:center;gap:9px;margin-top:9px}
+  #sampleFrameSlider{flex:1;min-width:0;accent-color:var(--cone);cursor:pointer}
+  #sampleFrameSlider:disabled{opacity:.4;cursor:default}
+  #sampleFrameTag{font-variant-numeric:tabular-nums;letter-spacing:.04em;white-space:nowrap}
   .salLabel{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-right:2px}
+  /* Pulses rather than sits still: the gradient passes behind it can take a
+     second or two on a phone, and a static word reads as a stuck state. */
+  #saliencyPending{margin-left:2px;color:var(--cone);animation:salPulse 1.1s ease-in-out infinite}
+  #saliencyPending[hidden]{display:none}
+  @keyframes salPulse{0%,100%{opacity:.45}50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){#saliencyPending{animation:none}}
   .salBtn{
     padding:3px 9px;border-radius:999px;border:1px solid var(--panel-line);
     background:transparent;color:var(--dim);
@@ -747,6 +760,13 @@
             <button type="button" class="salBtn" data-sal="steer" aria-pressed="true">steer</button>
             <button type="button" class="salBtn" data-sal="throttle" aria-pressed="false">throttle</button>
             <button type="button" class="salBtn" data-sal="off" aria-pressed="false">off</button>
+            <span id="saliencyPending" class="salLabel" hidden>computing…</span>
+          </div>
+          <div id="frameControls">
+            <label class="salLabel" for="sampleFrameSlider">frame</label>
+            <input type="range" id="sampleFrameSlider" min="0" max="0" value="0" step="1" disabled
+                   aria-describedby="sampleFrameTag">
+            <span id="sampleFrameTag" class="salLabel">—</span>
           </div>
         </div>
       </div>
@@ -779,6 +799,22 @@
           sits on the road surface instead of the light itself, it has learned
           <em>where you happened to stop</em> rather than what the signal
           means — and it will sail through the same light somewhere else.</p>
+
+          <p><b>Which frame you are looking at.</b> The <b>frame</b> slider
+          scrubs your whole recording, in the order you drove it, and works
+          before you have trained anything — the picture and the recorded
+          numbers come straight from the tub. It opens on the sharpest
+          steering frame, because a frame where the car is barely turning
+          contains no decision worth explaining, and on a mostly-straight
+          track an arbitrary frame is usually one of those. Whichever frame
+          you leave it on is the one the next run explains itself with, so
+          it is worth lining up a corner before pressing train.</p>
+
+          <p><b>The prediction columns need a model,</b> so they read “—”
+          until one exists. Once a run is under way the reading catches up at
+          the end of each epoch; once it has finished, scrubbing re-predicts
+          and re-explains as you go — the picture immediately, the heat a
+          moment behind it.</p>
 
           <p><b>Reading limits.</b> Brightness is scaled per frame against its
           99th-percentile pixel, so a map shows where the model is looking
@@ -830,10 +866,13 @@
         every epoch. The gap between them is the error you are training away,
         frame by frame, instead of collapsed into a single number.</p>
 
-        <p><b>It is the same 100 frames every epoch,</b> taken from the
-        training split in recorded order, so the two lines stay comparable
-        as the run progresses. Watch the orange line start flat near zero and
-        gradually grow into the shape of the pale one.</p>
+        <p><b>It is the same 100 frames every epoch,</b> drawn once from the
+        training split and then held fixed, so the two lines stay comparable
+        as the run progresses. They are in shuffled order, not recorded
+        order — neighbouring points are unrelated moments, so read this as
+        100 separate comparisons rather than as a lap. Watch the orange line
+        start flat near zero and gradually grow into the shape of the pale
+        one.</p>
 
         <p><b>Where it stays wrong is the useful part.</b> A model that tracks
         the straights but flattens out the sharp corners has learned the easy

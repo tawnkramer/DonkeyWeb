@@ -20,6 +20,23 @@ const CPU_BATCH = 16;
 
 let running = false;
 let stopRequested = false;
+// Survives the end of run() so the frame slider still works after training
+// finishes -- which is when you actually sit and read saliency maps, rather
+// than while the numbers are still moving.
+let session = null; // { model, byId: Map<id, record> }
+// Which recorded frame the panel is on, by tub id rather than by position:
+// the UI picks it from tub.frames while this worker reads IndexedDB, and
+// nothing guarantees those two lists stay index-aligned through a trim.
+let sampleId = null;
+
+// The model outlives its run, so something has to end it: the next run does,
+// just before it builds its replacement. Deferring it this way costs one
+// model's worth of resident weights between runs -- far less than the fit
+// that just finished, which held those weights plus a batch of activations.
+function releaseSession() {
+  if (session) session.model.dispose();
+  session = null;
+}
 
 function post(msg, transfer) { self.postMessage(msg, transfer); }
 
@@ -34,8 +51,53 @@ self.onmessage = (e) => {
       .finally(() => { running = false; });
   } else if (msg.type === 'stop') {
     stopRequested = true;
+  } else if (msg.type === 'sample') {
+    // While a fit is in flight the new frame is only recorded: a gradient
+    // pass fired from a message handler would land in the middle of a batch,
+    // unlike the epoch-end one, which runs at a point where fit is already
+    // parked awaiting its callback. The next epoch picks it up.
+    sampleId = msg.id;
+    if (!running) sendSample();
   }
 };
+
+// Rising id for on-demand requests, so work for a frame the user has already
+// scrubbed past can be abandoned instead of queueing up behind the thumb.
+// Every await below is a chance for a newer request to land.
+let sampleSeq = 0;
+
+// What the worker owes the sample panel, deliberately in two posts. The
+// picture is not among them: the page draws that itself, straight out of the
+// tub, so scrubbing never waits on this worker at all. What it cannot do
+// without a model is say what the network predicts and where it was looking,
+// and those two differ by three orders of magnitude in cost -- a single
+// forward pass against two full gradient passes over the network. So the
+// prediction goes out immediately and the maps follow when they are ready.
+//
+// Errors are swallowed to a console message rather than the 'error' channel:
+// failing to explain one frame is not a failed training run, and must not
+// tear down a model you just spent three minutes on.
+async function sendSample() {
+  if (!session) return;
+  const rec = session.byId.get(sampleId);
+  if (!rec) return;
+  const seq = ++sampleSeq;
+  const id = sampleId;
+  let x = null;
+  try {
+    x = await decodeSample(rec);
+    if (seq !== sampleSeq) return; // scrubbed past while decoding
+    post({ type: 'sample', id, prediction: predictOne(session.model, x) });
+    const saliency = await saliencyMaps(session.model, x);
+    if (seq !== sampleSeq) return;
+    post({ type: 'saliency', id, saliency, w: W, h: H },
+      [saliency.steer.buffer, saliency.throttle.buffer]);
+  } catch (err) {
+    console.error('sample frame:', err);
+  } finally {
+    if (x) x.dispose();
+  }
+}
 
 // WebGPU is progressive enhancement, WebGL the tested default (plan §5).
 // The wasm backend is deliberately skipped: it's missing gradient kernels
@@ -185,15 +247,29 @@ function normalizeSaliency(values) {
   return out;
 }
 
-// Decodes the same single frame steeringSlice used for index 0 (unaugmented,
-// at model input resolution) and hands back a transferable bitmap -- "this
-// is exactly what the network saw" is the point, so no resizing beyond what
-// the model itself takes as input. The same decode feeds the saliency pass,
-// so the heatmap is registered pixel-for-pixel with the thumbnail it is
-// drawn over rather than being a second, subtly different decode.
-async function sampleFrame(model, records, idx) {
-  const rgba = await decodeFrame(records[idx].img, false);
-  const bitmap = await createImageBitmap(decodeCanvas);
+// Which frame to open on when the page has not already chosen one. A frame
+// where the car is barely turning contains no decision worth explaining, and
+// on a mostly-straight track an arbitrary frame is usually one of those --
+// which is what made the first version of this panel easy to dismiss. The
+// sharpest turn is where the model is committing to something, so it is where
+// a wrong reason shows up most clearly. Steering is recorded data, so this is
+// fixed for the run and the frame does not move under you between epochs.
+function pickSampleId(records) {
+  let best = null, bestAbs = -1;
+  for (const rec of records) {
+    const abs = Math.abs(rec.steer);
+    if (abs > bestAbs) { bestAbs = abs; best = rec.id; }
+  }
+  return best;
+}
+
+// Decodes one frame (unaugmented, at model input resolution) into the input
+// tensor -- "this is exactly what the network saw" is the point, so no
+// resizing beyond what the model itself takes as input. The page decodes the
+// same frame to the same size for display, which is what keeps the heatmap
+// registered pixel-for-pixel with the picture under it. Caller disposes.
+async function decodeSample(rec) {
+  const rgba = await decodeFrame(rec.img, false);
   const px = new Uint8Array(H * W * C);
   let dst = 0;
   for (let p = 0; p < rgba.length; p += 4) {
@@ -201,20 +277,47 @@ async function sampleFrame(model, records, idx) {
     px[dst++] = rgba[p + 1];
     px[dst++] = rgba[p + 2];
   }
-  const x = tf.tidy(() => tf.tensor4d(px, [1, H, W, C]).div(255));
+  return tf.tidy(() => tf.tensor4d(px, [1, H, W, C]).div(255));
+}
+
+// Read here rather than borrowed from steeringSlice, so the slider can serve
+// any frame once fit has returned and there is no live slice left to index.
+function predictOne(model, x) {
+  const [steer, throttle] = tf.tidy(() => {
+    const out = model.predict(x);
+    return [out[0].dataSync()[0], out[1].dataSync()[0]];
+  });
+  return { steer, throttle };
+}
+
+// The expensive half: two gradient passes over the whole network.
+async function saliencyMaps(model, x) {
   const steerMap = saliencyFor(model, x, 0);
   const throttleMap = saliencyFor(model, x, 1);
   const [steerVals, throttleVals] = await Promise.all([steerMap.data(), throttleMap.data()]);
   steerMap.dispose();
   throttleMap.dispose();
-  x.dispose();
-  return {
-    bitmap, w: W, h: H,
-    saliency: { steer: normalizeSaliency(steerVals), throttle: normalizeSaliency(throttleVals) },
-  };
+  return { steer: normalizeSaliency(steerVals), throttle: normalizeSaliency(throttleVals) };
 }
 
-async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE, modelUrl = LEGACY_MODEL_URL }) {
+// The epoch-end path, where staging the two halves would buy nothing -- the
+// panel is already only updating once per epoch, and the maps are ready
+// before anyone could have reacted to the prediction.
+async function buildSample(model, rec) {
+  const x = await decodeSample(rec);
+  try {
+    return {
+      id: rec.id,
+      prediction: predictOne(model, x),
+      saliency: await saliencyMaps(model, x),
+      w: W, h: H, // the maps' own grid, which need not match the displayed frame
+    };
+  } finally {
+    x.dispose();
+  }
+}
+
+async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFAULT_PROFILE, modelUrl = LEGACY_MODEL_URL, sampleId: wantSampleId = null }) {
   const t0 = performance.now();
   post({ type: 'status', phase: 'loading', detail: 'starting backend' });
   await chooseBackend();
@@ -238,6 +341,12 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
   const valIdx = order.slice(0, nVal);
   const trainIdx = order.slice(nVal);
   const previewIdx = trainIdx.slice(0, Math.min(100, trainIdx.length));
+  const byId = new Map(records.map((r) => [r.id, r]));
+  // The page has usually already picked a frame by scrubbing before pressing
+  // train, and that choice outranks this worker's guess -- but it is checked
+  // against the tub rather than trusted, since a frame can be trimmed away
+  // between the pick and the run.
+  sampleId = byId.has(wantSampleId) ? wantSampleId : pickSampleId(records);
   post({ type: 'dataset', nTrain: trainIdx.length, nVal, epochs, batchSize });
 
   const trainDs = tf.data.generator(
@@ -249,41 +358,39 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
   // batch callback is one silent stretch, and on a slow device it is long
   // enough (kernel compilation, first tensor uploads) to look like a hang.
   post({ type: 'phase', phase: 'building the model' });
+  releaseSession(); // the previous run's model has outlived its usefulness now
   const model = buildModel(tf, profile);
+  session = { model, byId };
   post({ type: 'phase', phase: `warming up ${backend} — first batch is the slow one` });
   let batchNum = 0;
-  try {
-    await model.fitDataset(trainDs, {
-      epochs,
-      validationData: valDs,
-      callbacks: {
-        onBatchEnd: async (_batch, logs) => {
-          batchNum++;
-          post({ type: 'batch', batch: batchNum, loss: logs.loss });
-          if (stopRequested) model.stopTraining = true;
-        },
-        onEpochEnd: async (epoch, logs) => {
-          const valAccuracy = logs.val_n_outputs0_toleranceAccuracy;
-          const slice = await steeringSlice(model, records, previewIdx);
-          slice.epoch = epoch + 1;
-          const frame = await sampleFrame(model, records, previewIdx[0]);
-          const sample = {
-            target: { steer: slice.targets[0], throttle: slice.targetThrottle[0] },
-            prediction: { steer: slice.predictions[0], throttle: slice.predictedThrottle[0] },
-            ...frame,
-          };
-          post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice, sample },
-            [frame.bitmap, frame.saliency.steer.buffer, frame.saliency.throttle.buffer]);
-          if (stopRequested) model.stopTraining = true;
-        },
+  // The model is deliberately not disposed when this returns: the frame
+  // slider keeps predicting and taking gradients through it afterwards, and
+  // reading saliency maps is something you do once the numbers have stopped
+  // moving. releaseSession() above ends the previous run's model instead, so
+  // a run that threw is cleaned up on the next attempt rather than leaking.
+  await model.fitDataset(trainDs, {
+    epochs,
+    validationData: valDs,
+    callbacks: {
+      onBatchEnd: async (_batch, logs) => {
+        batchNum++;
+        post({ type: 'batch', batch: batchNum, loss: logs.loss });
+        if (stopRequested) model.stopTraining = true;
       },
-    });
+      onEpochEnd: async (epoch, logs) => {
+        const valAccuracy = logs.val_n_outputs0_toleranceAccuracy;
+        const slice = await steeringSlice(model, records, previewIdx);
+        slice.epoch = epoch + 1;
+        const sample = await buildSample(model, byId.get(sampleId));
+        post({ type: 'epoch', epoch: epoch + 1, loss: logs.loss, valLoss: logs.val_loss, valAccuracy, atBatch: batchNum, steeringSlice: slice, sample },
+          [sample.saliency.steer.buffer, sample.saliency.throttle.buffer]);
+        if (stopRequested) model.stopTraining = true;
+      },
+    },
+  });
 
-    // Saved even when stopped early -- the early-stop button means "good
-    // enough, let me try it", not "throw it away".
-    await model.save(modelUrl);
-  } finally {
-    model.dispose();
-  }
+  // Saved even when stopped early -- the early-stop button means "good
+  // enough, let me try it", not "throw it away".
+  await model.save(modelUrl);
   post({ type: 'done', elapsed: (performance.now() - t0) / 1000, stopped: stopRequested });
 }

@@ -16,10 +16,14 @@ export const training = {
   epochLog: [],      // { epoch, loss, valLoss, valAccuracy, atBatch }
   valAccuracy: null,
   steeringSlice: null, // { epoch, targets, predictions } for the train UI
-  // One frame re-predicted each epoch, plus per-head gradient saliency over
-  // the same pixels: { bitmap, w, h, target: {steer,throttle},
-  // prediction: {steer,throttle}, saliency: { steer, throttle } }, where each
-  // saliency map is a Uint8Array of w*h bytes in row-major order.
+  // What the worker can say about one recorded frame that the page cannot
+  // work out for itself: { id, prediction: {steer,throttle},
+  // saliency: { steer, throttle } | null }, where each saliency map is a
+  // Uint8Array of one byte per model-input pixel, row-major. `id` is a tub
+  // frame id -- the picture and the recorded values are the page's own, read
+  // straight from the tub, so the frame picker works with no model at all and
+  // never waits on this worker. saliency is null while the maps are still
+  // being computed for a frame whose prediction has already landed.
   sample: null,
   elapsed: 0,
   stopped: false,
@@ -104,11 +108,24 @@ function onMessage({ data: m }) {
       training.epoch = m.epoch;
       training.valAccuracy = m.valAccuracy;
       training.steeringSlice = m.steeringSlice || null;
-      // Close the outgoing bitmap rather than letting it wait for GC -- each
-      // one holds decoded pixel memory, and a long run replaces it every epoch.
-      if (training.sample?.bitmap) training.sample.bitmap.close();
       training.sample = m.sample || null;
       training.epochLog.push({ epoch: m.epoch, loss: m.loss, valLoss: m.valLoss, valAccuracy: m.valAccuracy, atBatch: m.atBatch });
+      break;
+    // A prediction for the frame the picker asked about. Its maps follow in
+    // their own message: they cost two gradient passes, and the panel should
+    // not sit on a stale reading while they run.
+    case 'sample':
+      training.sample = { id: m.id, prediction: m.prediction, saliency: null };
+      break;
+    // The maps catching up with a frame already on screen. Matched on id so a
+    // slow map for a frame the user has scrubbed past cannot land on top of a
+    // newer one and mislabel which pixels belong to which picture.
+    case 'saliency':
+      if (training.sample && training.sample.id === m.id) {
+        training.sample.saliency = m.saliency;
+        training.sample.w = m.w;
+        training.sample.h = m.h;
+      }
       break;
     case 'done':
       training.state = 'done';
@@ -131,21 +148,30 @@ function onMessage({ data: m }) {
 // tfjs unregisters a backend whose initialization failed, so an instance
 // that once fell back to cpu will never try the GPU again -- and the usual
 // reason for that fallback (no WebGL context to spare) is temporary and is
-// exactly what the Train tab's GPU release frees up. Keeping a cpu worker
-// alive would make one bad first attempt permanent for the session, so it is
-// thrown away and the next run gets a fresh tfjs.
+// exactly what the Train tab's GPU release frees up. Reusing a cpu worker
+// would make one bad first attempt permanent for the session, so it is
+// replaced and the next run gets a fresh tfjs.
+//
+// Marked rather than terminated on the spot: the worker still owns the
+// trained model and the decoded frames behind the sample panel's frame
+// slider, and killing it the instant a run ends would leave a slider that
+// silently does nothing for exactly the users on the slowest hardware. It
+// costs an idle worker until the next run, which is when the swap happens.
+let workerDegraded = false;
 function dropWorkerIfDegraded() {
-  if (worker && training.backend === 'cpu') {
-    worker.terminate();
-    worker = null;
-  }
+  if (worker && training.backend === 'cpu') workerDegraded = true;
 }
 
 // The worker is kept alive between runs: a retrain then skips re-fetching
 // tfjs from the CDN and re-initializing the GPU backend, which is most of
 // the latency on the plan's "collect more data, retrain" loop.
 function ensureWorker() {
+  if (worker && workerDegraded) {
+    worker.terminate();
+    worker = null;
+  }
   if (!worker) {
+    workerDegraded = false;
     worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
     worker.onmessage = onMessage;
     worker.onerror = (e) => {
@@ -165,7 +191,6 @@ function ensureWorker() {
 
 export function trainStart(opts = {}) {
   if (training.state === 'loading' || training.state === 'running') return;
-  if (training.sample?.bitmap) training.sample.bitmap.close();
   Object.assign(training, {
     state: 'loading', detail: 'starting', backend: training.backend,
     epoch: 0, epochsTotal: 0, nTrain: 0, nVal: 0,
@@ -182,4 +207,14 @@ export function trainStart(opts = {}) {
 
 export function trainStop() {
   if (worker && training.state === 'running') worker.postMessage({ type: 'stop' });
+}
+
+// Ask what the model makes of a given tub frame. Only the prediction and the
+// saliency maps come from here -- the page draws the frame itself -- so a
+// no-op when there is no worker yet costs nothing but the overlay. Answered
+// immediately once fit has returned; while a run is still going the worker
+// only records the request and serves it at the next epoch boundary, so the
+// reading can lag the picture by up to one epoch mid-run.
+export function trainSampleAt(id) {
+  if (worker) worker.postMessage({ type: 'sample', id });
 }
