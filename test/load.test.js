@@ -47,6 +47,7 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
   await page.click('.navbtn[data-mode="train"]');
   const panels = await page.evaluate(() => {
     document.getElementById('trainSample').hidden = false;
+    document.getElementById('backpropPanel').hidden = false;
     return [...document.querySelectorAll('details.explain')].map((details) => {
       const summary = details.querySelector('summary');
       const box = summary.getBoundingClientRect();
@@ -65,13 +66,14 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
   });
   await page.click('.navbtn[data-mode="drive"]');
 
-  assert.deepEqual(panels.map((p) => p.id), ['sampleExplain', 'lossExplain', 'steeringExplain'],
-    'expected an Explain panel under the sample frame, the loss chart, and the steering chart');
+  assert.deepEqual(panels.map((p) => p.id), ['sampleExplain', 'bpExplain', 'lossExplain', 'steeringExplain'],
+    'expected an Explain panel under the sample frame, the backprop stage, the loss chart, and the steering chart');
   // Each button names its own section rather than saying a bare "Explain":
   // three identical controls down one scrolling page give no clue which
   // chart the prose that unfolds is about.
   const labels = {
     sampleExplain: 'Explain saliency map',
+    bpExplain: 'Explain backprop',
     lossExplain: 'Explain loss graph',
     steeringExplain: 'Explain steering fit',
   };
@@ -90,8 +92,8 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
 test('the train screen labels its sections in reading order', async () => {
   const headers = await page.evaluate(() =>
     [...document.querySelectorAll('#screenTrain .trainSection')].map((el) => el.textContent.trim()));
-  assert.deepEqual(headers, ['Saliency map', 'Loss graph', 'Steering fit'],
-    'expected a header over each of the three train-screen sections, in page order');
+  assert.deepEqual(headers, ['Saliency map', 'Backprop, one step at a time', 'Loss graph', 'Steering fit'],
+    'expected a header over each of the four train-screen sections, in page order');
 });
 
 // The state the picker ships in, before anything is recorded: a slider that

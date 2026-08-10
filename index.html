@@ -348,6 +348,15 @@
     #sampleTable{font-size:10.5px}
     #sampleTable th, #sampleTable td{padding:3px 6px}
     .salBtn{padding:3px 7px;font-size:9px}
+    #bpReadout{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+    /* These four are words, not the long numbers .metric-value ellipsises
+       for -- "5 · forward again" is the label doing the most work here and
+       must not become "5 · forw...". */
+    #bpReadout .metric-value{white-space:normal}
+    #bpStage{padding:12px 8px 10px}
+    .bpCol{width:62px;padding:0 6px}
+    .bpTracks{height:96px}
+    #bpLr{width:104px}
   }
   /* Full width under the chart rather than in the header's .t-status, which
      is a single ellipsised line: on a phone the batch/ETA/stall detail is
@@ -410,6 +419,81 @@
     letter-spacing:.06em;text-transform:uppercase;cursor:pointer;
   }
   .salBtn[aria-pressed="true"]{background:var(--cone);border-color:var(--cone);color:#1b1408}
+
+  /* ---------- backprop panel ---------- */
+  /* One column per layer, laid out left to right in the order the frame
+     travels through them, so the forward pass reads as a sentence and the
+     backward pass reads as the same sentence in reverse. Columns are DOM
+     elements with CSS-transitioned heights rather than a canvas: the act-to-
+     act animation then costs one class change, and prefers-reduced-motion
+     switches it off in one rule instead of needing its own draw path. */
+  #bpStage{
+    background:rgba(0,0,0,.25);border:1px solid var(--panel-line);border-radius:6px;
+    padding:14px 12px 12px;overflow-x:auto;overflow-y:hidden;
+  }
+  #bpLayers{display:flex;align-items:flex-start;min-width:min-content}
+  .bpCol{
+    flex:0 0 auto;width:76px;padding:0 8px;position:relative;
+    display:flex;flex-direction:column;align-items:center;
+    opacity:.3;transition:opacity .25s ease;
+  }
+  .bpCol.lit{opacity:1}
+  .bpName{
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:9.5px;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--text);
+    text-align:center;line-height:1.25;word-break:break-word;
+  }
+  .bpShape{font-size:8.5px;color:var(--dim);text-align:center;margin-top:2px;font-variant-numeric:tabular-nums}
+  .bpTracks{position:relative;height:120px;display:flex;align-items:flex-end;justify-content:center;gap:5px;margin:8px 0 6px}
+  /* Direction of travel, drawn in the gap to the left of every column but
+     the first. Flipped by one class on the row when the act reverses. */
+  .bpCol + .bpCol .bpTracks::before{
+    content:'\25B8';position:absolute;left:-11px;top:50%;transform:translateY(-50%);
+    font-size:12px;line-height:1;color:var(--dim);opacity:.45;
+  }
+  #bpLayers.back .bpCol + .bpCol .bpTracks::before{content:'\25C2'}
+  .bpTrack{position:relative;width:13px;height:100%;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+  .bpTrack i{position:absolute;left:0;right:0;bottom:0;height:0;border-radius:2px;transition:height .35s ease}
+  .bpTrackAct i{background:var(--dim)}
+  .bpTrackGrad i.bpFill{background:var(--cone)}
+  /* The step, drawn inside the gradient bar it is derived from: same bar,
+     scaled by the learning rate. Whitening rather than a new hue, matching
+     the saliency ramp's "hotter is whiter". */
+  .bpTrackGrad i.bpStep{background:rgba(243,239,232,.9)}
+  .bpNums{font-size:9px;line-height:1.45;text-align:center;font-variant-numeric:tabular-nums}
+  .bpNums b{display:block;font-weight:400;color:var(--dim)}
+  .bpNums em{display:block;font-style:normal;color:var(--cone)}
+  .bpColInput .bpTracks{align-items:center}
+  #bpFrame{width:58px;height:auto;display:block;background:#000;border-radius:3px;image-rendering:pixelated}
+  /* The output error is not a layer, so it does not get a layer's column:
+     the rule separates "what the network computed" from "how wrong it was". */
+  .bpColError{width:92px;margin-left:10px;border-left:1px solid var(--panel-line);padding-left:14px}
+  .bpColError .bpTrack i{background:var(--cone)}
+  #bpCaption{margin:11px 0 0;font-size:11.5px;line-height:1.6;color:var(--dim);max-width:64ch}
+  #bpCaption b{color:var(--text);font-weight:600}
+  #bpCaption em{color:var(--cone);font-style:normal}
+  #bpReadout{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:12px}
+  #bpWeight{
+    margin-top:10px;min-height:15px;font-size:10.5px;color:var(--dim);
+    font-variant-numeric:tabular-nums;letter-spacing:.02em;
+  }
+  #bpWeight em{color:var(--cone);font-style:normal}
+  #bpControls{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
+  #bpNextBtn{
+    padding:9px 16px;border-radius:6px;border:1px solid var(--cone);background:var(--cone);color:#1b1408;
+    font-family:'Chakra Petch',sans-serif;font-weight:600;font-size:12px;
+    letter-spacing:.05em;text-transform:uppercase;cursor:pointer;
+  }
+  #bpNextBtn:disabled{opacity:.4;cursor:default}
+  #bpOptions{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+  #bpLr{width:130px;accent-color:var(--cone);cursor:pointer}
+  #bpSource{font:10px 'IBM Plex Mono',monospace;color:var(--text);background:rgba(255,255,255,.08);border:1px solid var(--panel-line);border-radius:4px;padding:5px}
+  #bpLogScale{accent-color:var(--cone);cursor:pointer}
+  #bpLogLabel{margin-left:4px}
+  #bpModelTag{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;margin-left:6px}
+  @media (prefers-reduced-motion:reduce){
+    .bpCol, .bpTrack i{transition:none}
+  }
   /* Native <details> so the disclosure works with no JS and is keyboard
      operable for free; the default triangle is replaced by the same '›'
      rotation the nav menu sections use. */
@@ -822,6 +906,108 @@
           between epochs or between the two heads. Raw gradients are also
           noisy by nature: treat scattered speckle as noise and coherent
           regions as signal.</p>
+        </div>
+      </details>
+    </div>
+    <div id="backpropPanel" hidden>
+      <span class="t-label trainSection">Backprop, one step at a time<span id="bpModelTag"></span></span>
+      <div id="bpStage">
+        <div id="bpLayers" role="img" aria-labelledby="bpCaption"></div>
+      </div>
+      <p id="bpCaption">Press <b>run forward pass</b> to send the frame above through the network.</p>
+      <div id="bpReadout">
+        <div class="lossMetric"><span class="metric-label">Act</span><span class="metric-value" id="bpActName">—</span></div>
+        <div class="lossMetric"><span class="metric-label">Loss on this frame</span><span class="metric-value" id="bpLoss">—</span></div>
+        <div class="lossMetric"><span class="metric-label">Steps taken</span><span class="metric-value" id="bpSteps">0</span></div>
+        <div class="lossMetric"><span class="metric-label">Learning rate</span><span class="metric-value" id="bpLrValue">0.010</span></div>
+      </div>
+      <div id="bpWeight" aria-live="polite"></div>
+      <div id="bpControls">
+        <button type="button" id="bpNextBtn">run forward pass</button>
+        <button type="button" class="salBtn" id="bpAutoBtn" aria-pressed="false">auto</button>
+        <button type="button" class="salBtn" id="bpResetBtn">reset</button>
+      </div>
+      <div id="bpOptions" role="group" aria-label="Backprop options">
+        <label class="salLabel" for="bpLr">rate</label>
+        <input type="range" id="bpLr" min="0" max="100" value="54" step="1" aria-describedby="bpLrValue">
+        <label class="salLabel" for="bpSource">model</label>
+        <select id="bpSource"></select>
+        <label class="salLabel" id="bpLogLabel" for="bpLogScale">log bars</label>
+        <input type="checkbox" id="bpLogScale">
+      </div>
+      <details id="bpExplain" class="explain">
+        <summary>Explain backprop</summary>
+        <div class="explainBody">
+          <p><b>This is one training step, slowed down.</b> The loss graph
+          below shows that a model learns; it cannot show <em>how</em>. So this
+          takes the single frame above, runs it through the network, works out
+          how wrong the answer was, traces that blame back through every layer,
+          nudges the weights once, and runs the same frame again so you can see
+          the error shrink. Real training does exactly this, tens of thousands
+          of times, too fast to watch.</p>
+
+          <p><b>Going forward there is no error yet.</b> The pale bars are
+          <em>activations</em> — how strongly each layer is responding to this
+          picture. Nothing is right or wrong at that point, because the network
+          has not yet been told what the answer should have been. That is why
+          nothing is orange until the very end of the row.</p>
+
+          <p><b>Error is born at the output.</b> Only when the two predictions
+          meet the steering and throttle you actually recorded does a mistake
+          exist: the orange bars in the last column are that gap, and the loss
+          is their squares added together.</p>
+
+          <p><b>Backward, that error is divided up as blame.</b> Each layer's
+          orange bar is how much this frame's mistake is attributable to that
+          layer's weights — the gradient. Notice it does <em>not</em> shrink
+          neatly on the way back. It jumps around, and in the early convolution
+          layers it is often hundreds of times smaller than at the heads. That
+          is <em>vanishing gradient</em>, it is a real problem in deep networks,
+          and it means the first layers learn far more slowly than the last
+          ones. Turn on <b>log bars</b> when the early columns are too short to
+          read.</p>
+
+          <p><b>The learning rate scales the step, not the error.</b> This is
+          the part that is easy to get backwards. The gradient says which
+          direction each weight should move and how urgently; the learning rate
+          decides how far you are willing to go on the strength of one frame.
+          The white sliver inside each orange bar is that step — literally the
+          gradient multiplied by the rate. Drag <b>rate</b> and watch the sliver
+          resize while the orange bar behind it stays exactly where it was.</p>
+
+          <p><b>Then the same frame goes through again,</b> and the error bars
+          come back shorter. That is the whole mechanism: not the error
+          shrinking as it travels backward, but the model being slightly less
+          wrong the next time it is asked.</p>
+
+          <p><b>What to watch for:</b> push the rate to the top of its range and
+          keep stepping. The loss stops falling smoothly and starts bouncing —
+          down, then up past where it started — because a step that big sails
+          over the bottom of the valley and partway up the far side. Often it
+          never comes back: a couple more steps and the numbers reach infinity,
+          the model is dead, and only <b>reset</b> revives it. Drag the rate to
+          the bottom instead and you get the opposite failure — every bar is
+          right, every step is real, and nothing visibly happens. Every trained
+          model in this app lives between those two.</p>
+
+          <p><b>Stepping this one frame is memorising, not learning.</b> Hold
+          <b>auto</b> long enough and the loss goes to essentially zero — the
+          model has not learned to drive, it has learned this single picture.
+          Real training averages the gradient over a batch of 64 different
+          frames before taking each step, which is what makes the direction
+          worth trusting. This panel drops that on purpose so there is only one
+          thing moving at a time.</p>
+
+          <p><b>Reading limits.</b> Bars are scaled within each pass against the
+          largest one, so heights compare layers to each other, not to the loss
+          number or to the previous act. The orange backward bar is the gradient
+          with respect to that layer's <em>weights</em> — what the update
+          actually uses — which is related to, but not the same as, the error
+          signal passing through it. And this steps with plain gradient descent
+          so the rate means exactly what it says; the real trainer uses Adam,
+          which adds momentum and per-weight scaling on top and would make the
+          sliver a half-truth. Nothing here touches your trained model: it works
+          on a throwaway copy, and <b>reset</b> puts it back.</p>
         </div>
       </details>
     </div>

@@ -18,6 +18,7 @@ import './modelui.js';
 import './worldui.js';
 import './joystick.js';
 import './trainui.js';
+import { learn } from './learnui.js';
 import { drawPilot } from './pilotui.js';
 import { drawRecover } from './recoverui.js';
 import { drawDataset, syncDataAvailability } from './datasetui.js';
@@ -95,7 +96,7 @@ window.__sim = {
   // teleport leaves it stale, the cross-track error reads as enormous and
   // the off-track auto-reset immediately undoes the move. Go through this.
   placeCarAt, resetCarToStart, collision, hitTest,
-  stopSession, storageEstimate,
+  stopSession, storageEstimate, learn,
   get sessionOpen() { return sessionOpen; },
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },

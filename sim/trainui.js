@@ -74,6 +74,12 @@ for (const [name, p] of Object.entries(PROFILES)) {
 }
 profileSelect.value = isPhone ? 'tiny' : 'linear';
 
+// The frame is decoded at the chosen profile's input size, so switching
+// profiles has to re-decode it or the picture stops being what the network
+// would see -- and the saliency overlay, which is one byte per input pixel,
+// stops registering with it.
+profileSelect.addEventListener('change', () => { showFrame(frameIdx); });
+
 btn.addEventListener('click', async () => {
   dismissHint();
   if (training.state === 'running') trainStop();
@@ -215,6 +221,32 @@ let frameDebounce = null;      // gates only the worker request, never the draw
 
 function currentFrame() { return tub.frames[frameIdx] || null; }
 
+// The backprop panel below steps on the same frame this section explains,
+// rather than owning a second picker: one picture, one set of recorded
+// numbers, one dbGet. Subscribers get the current frame immediately on
+// subscribing, because module import order means learnui.js can register
+// after the opening frame has already been shown.
+//
+// The bitmap handed over is the live one -- showFrame() closes a bitmap only
+// when its replacement has arrived, so it stays valid until the next frame
+// is emitted. Subscribers must therefore read it at point of use and never
+// hold a captured reference across an await.
+const sampleFrameListeners = new Set();
+export function onSampleFrame(fn) {
+  sampleFrameListeners.add(fn);
+  if (frameBitmap && currentFrame()) fn(sampleFrameEvent());
+}
+
+function sampleFrameEvent() {
+  return { frame: currentFrame(), bitmap: frameBitmap, profile: profileSelect.value };
+}
+
+function emitSampleFrame() {
+  if (!frameBitmap || !currentFrame()) return;
+  const event = sampleFrameEvent();
+  for (const fn of sampleFrameListeners) fn(event);
+}
+
 // Whatever the model most recently said, but only if it was talking about the
 // frame on screen. Anything else is a reading for a picture that is no longer
 // there, and showing it against this one would be a straightforward lie.
@@ -234,6 +266,7 @@ async function showFrame(idx, { ask = true } = {}) {
   if (frameBitmap) frameBitmap.close();
   frameBitmap = bmp;
   drawSample();
+  emitSampleFrame();
   // The expensive half is debounced, the picture above is not: a drag across
   // 900 frames should cost 900 cheap decodes and one gradient pass, not 900
   // of each.

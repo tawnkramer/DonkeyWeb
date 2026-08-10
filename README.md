@@ -34,6 +34,14 @@ donkeycar, not just conceptually similar to one.
 - **Train**: one button trains the model in a background Web Worker (WebGPU
   -> WebGL -> CPU, whichever this browser supports) with a live per-batch
   loss chart, so the tab never freezes while it trains.
+- **Backprop, step by step**: a teaching panel that takes the frame you are
+  looking at and runs one training step by hand, five acts at a time --
+  activations forward, the error appearing where the prediction meets what
+  you recorded, gradients traced back as blame, one weight update scaled by
+  the learning rate, then the same frame again with the error visibly
+  smaller. It steps a throwaway copy with plain gradient descent, so you can
+  wind the rate up until the model diverges without touching the one you
+  trained.
 - **Models**: a built-in example is available immediately in Eval. User
   models can be selected, exported from the hamburger menu, or imported from
   TensorFlow.js `model.json` and weight files.
