@@ -85,6 +85,22 @@ test('recorded laps train a model with finite losses and save it to IndexedDB', 
       canvasH: document.getElementById('sampleCanvas').height,
     };
   });
+  // The other half of the record lifecycle that modelrecords.test.js pins
+  // from the failure side: a run that DOES reach model.save() must leave
+  // exactly one record, with its pending flag cleared and artifacts actually
+  // present, or the next page load's prune would collect the real model.
+  const savedRecords = await page.evaluate(async () => {
+    const { dbModelGetAll } = await import('/data/db.js');
+    const tf = await import('/vendor/tf.mjs');
+    await tf.ready();
+    const all = await dbModelGetAll();
+    const stored = await tf.io.listModels();
+    return all.map((r) => ({ name: r.name, pending: !!r.pending, hasWeights: !!stored[r.storageKey] }));
+  });
+  assert.equal(savedRecords.length, 1, `expected exactly one model record, got ${JSON.stringify(savedRecords)}`);
+  assert.equal(savedRecords[0].pending, false, 'a finished run must clear its pending flag');
+  assert.equal(savedRecords[0].hasWeights, true, 'the saved record should have artifacts behind it');
+
   assert.ok(sample, 'expected training.sample to be populated after training');
   assert.ok(sample.knownFrame, `training.sample.id ${sample.id} is not a frame in the tub`);
   assert.equal(sample.canvasW, 160, `sample canvas should be the model's input width, got ${sample.canvasW}`);
