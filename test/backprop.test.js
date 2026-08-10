@@ -27,7 +27,7 @@ async function setupPanel() {
     const { tubPush, waitForTubIdle } = await import('/data/tub.js');
     for (let i = 0; i < 6; i++) tubPush(i * 0.05, Math.sin(i) * 0.6, 0.5);
     await waitForTubIdle();
-    __sim.setMode('train');
+    __sim.setMode('learn');
   });
   // A fresh random model rather than a copy: it needs no artifacts to load and
   // its error is large enough that one step moves it unmistakably.
@@ -47,6 +47,34 @@ const advance = (n) => page.evaluate(async (count) => {
 }, n);
 
 const lossText = () => page.evaluate(() => document.getElementById('bpLoss').textContent);
+
+// The panel lives on its own screen, reached only from the hamburger -- there
+// is no navbar button for it. If the menu wiring breaks there is no other way
+// in, so the route itself is worth a test rather than just the destination.
+test('the hamburger reaches the backprop visualizer', async () => {
+  await page.evaluate(() => __sim.setMode('drive'));
+  await page.click('#modelMenuBtn');
+  await page.click('[data-submenu="learn"]');
+  await page.click('.menuModeBtn[data-mode="learn"]');
+
+  const state = await page.evaluate(() => ({
+    mode: document.body.dataset.mode,
+    shown: getComputedStyle(document.getElementById('screenLearn')).display,
+    menuClosed: !document.getElementById('modelMenu').classList.contains('open'),
+    // With nothing recorded there is no frame to step, and the page has to
+    // say so rather than showing an empty stage.
+    empty: !document.getElementById('learnEmpty').hidden,
+    panelHidden: document.getElementById('backpropPanel').hidden,
+    // It must not have been left behind on the Train screen.
+    onTrainScreen: !!document.querySelector('#screenTrain #backpropPanel'),
+  }));
+  assert.equal(state.mode, 'learn');
+  assert.equal(state.shown, 'block', 'the Learn screen should be visible');
+  assert.equal(state.menuClosed, true, 'the menu should close behind the choice');
+  assert.equal(state.empty, true, 'expected the "drive a lap first" message');
+  assert.equal(state.panelHidden, true, 'the stage should stay hidden with no frame');
+  assert.equal(state.onTrainScreen, false, 'the panel should no longer be on the Train screen');
+});
 
 test('the panel draws a column per layer, plus the frame and the error', async () => {
   await setupPanel();

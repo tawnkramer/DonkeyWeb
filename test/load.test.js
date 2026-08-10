@@ -39,16 +39,19 @@ test('loads with no console errors, failed requests, or bad HTTP statuses', asyn
 // page up. Keeping it out of the training test keeps the slow suite slow for
 // reasons that actually require training.
 test('every Explain disclosure ships collapsed, is visible, and opens on demand', async () => {
-  // Measured on the Train screen with the sample panel revealed, which is
-  // the only state a user ever sees these in. Asserting on the DOM alone is
-  // not enough: markup that exists but renders at zero size, or under a
-  // hidden ancestor, passes every structural check while being invisible --
-  // which is exactly how the first version of this shipped unnoticed.
-  await page.click('.navbtn[data-mode="train"]');
-  const panels = await page.evaluate(() => {
+  // Measured with the owning screen actually showing, which is the only state
+  // a user ever sees these in -- and the reason each screen is visited rather
+  // than querying them all at once. Asserting on the DOM alone is not enough:
+  // markup that exists but renders at zero size, or under a hidden ancestor,
+  // passes every structural check while being invisible, which is exactly how
+  // the first version of this shipped unnoticed. The backprop panel now lives
+  // on its own screen, so querying from Train would report it invisible and
+  // be right.
+  const measure = (screen) => page.evaluate((id) => {
+    // Both panels hide themselves until a frame exists; this test has no tub.
     document.getElementById('trainSample').hidden = false;
     document.getElementById('backpropPanel').hidden = false;
-    return [...document.querySelectorAll('details.explain')].map((details) => {
+    return [...document.querySelectorAll(`#${id} details.explain`)].map((details) => {
       const summary = details.querySelector('summary');
       const box = summary.getBoundingClientRect();
       const closed = details.open;
@@ -63,26 +66,34 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
         words: body ? body.textContent.trim().split(/\s+/).length : 0,
       };
     });
-  });
+  }, screen);
+
+  await page.click('.navbtn[data-mode="train"]');
+  const trainPanels = await measure('screenTrain');
+  await page.evaluate(() => __sim.setMode('learn'));
+  const learnPanels = await measure('screenLearn');
   await page.click('.navbtn[data-mode="drive"]');
 
-  assert.deepEqual(panels.map((p) => p.id), ['sampleExplain', 'bpExplain', 'lossExplain', 'steeringExplain'],
-    'expected an Explain panel under the sample frame, the backprop stage, the loss chart, and the steering chart');
+  assert.deepEqual(trainPanels.map((p) => p.id), ['sampleExplain', 'lossExplain', 'steeringExplain'],
+    'expected an Explain panel under the sample frame, the loss chart, and the steering chart');
+  assert.deepEqual(learnPanels.map((p) => p.id), ['bpExplain'],
+    'expected the backprop Explain panel on the Learn screen');
+
   // Each button names its own section rather than saying a bare "Explain":
-  // three identical controls down one scrolling page give no clue which
-  // chart the prose that unfolds is about.
+  // identical controls down one scrolling page give no clue which chart the
+  // prose that unfolds is about.
   const labels = {
     sampleExplain: 'Explain saliency map',
-    bpExplain: 'Explain backprop',
     lossExplain: 'Explain loss graph',
     steeringExplain: 'Explain steering fit',
+    bpExplain: 'Explain backprop',
   };
-  for (const p of panels) {
+  for (const p of [...trainPanels, ...learnPanels]) {
     assert.equal(p.label, labels[p.id], `${p.id}: unexpected summary label`);
     assert.ok(p.onScreen, `${p.id}: not rendered -- it is under a hidden ancestor`);
     assert.ok(p.w > 60 && p.h > 16, `${p.id}: expected a pressable-sized control, got ${p.w}x${p.h}px`);
     // Collapsed by default: the charts and numbers are the panel's job, and
-    // three walls of prose unfurled by default would bury them.
+    // walls of prose unfurled by default would bury them.
     assert.equal(p.closed, false, `${p.id}: expected it to start collapsed`);
     assert.equal(p.opened, true, `${p.id}: expected clicking the summary to open it`);
     assert.ok(p.words > 100, `${p.id}: expected substantive copy, got ${p.words} words`);
@@ -92,8 +103,8 @@ test('every Explain disclosure ships collapsed, is visible, and opens on demand'
 test('the train screen labels its sections in reading order', async () => {
   const headers = await page.evaluate(() =>
     [...document.querySelectorAll('#screenTrain .trainSection')].map((el) => el.textContent.trim()));
-  assert.deepEqual(headers, ['Saliency map', 'Backprop, one step at a time', 'Loss graph', 'Steering fit'],
-    'expected a header over each of the four train-screen sections, in page order');
+  assert.deepEqual(headers, ['Saliency map', 'Loss graph', 'Steering fit'],
+    'expected a header over each of the three train-screen sections, in page order');
 });
 
 // The state the picker ships in, before anything is recorded: a slider that
@@ -139,7 +150,13 @@ test('the frame picker scrubs recorded frames with no model trained', async () =
 
   const opened = await waitFor(page, () => {
     const canvas = document.getElementById('sampleCanvas');
-    if (document.getElementById('trainSample').hidden || !canvas.width) return null;
+    // Wait for the DECODED picture, not merely for the panel to appear. The
+    // numbers and the slider are drawn before any I/O, deliberately, so the
+    // panel unhides while the canvas is still at its 160x120-less default --
+    // and `canvas.width` alone can never catch that, because an unsized
+    // canvas reports 300 and 300 is truthy.
+    const ready = canvas.width === 160 && canvas.height === 120;
+    if (document.getElementById('trainSample').hidden || !ready) return null;
     const frames = window.__sim.tub.frames;
     return {
       count: frames.length,

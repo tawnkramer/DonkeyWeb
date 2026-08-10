@@ -1,8 +1,9 @@
 import { training, trainStart, trainStop, trainSampleAt, onTraining } from '../train/trainer.js';
-import { PROFILES, DEFAULT_PROFILE } from '../train/model.js';
+import { PROFILES } from '../train/model.js';
 import { tub } from '../data/tub.js';
-import { dbGet } from '../data/db.js';
-import { onModeChange } from './mode.js';
+import {
+  onSampleFrame, sampleFrame, setSampleProfile, showFrame,
+} from './sampleframe.js';
 import { createUserModel, modelStorageKey, setActiveModelId } from '../train/models.js';
 import { dismissHint } from './input.js';
 
@@ -73,12 +74,13 @@ for (const [name, p] of Object.entries(PROFILES)) {
   profileSelect.add(new Option(p.label, name));
 }
 profileSelect.value = isPhone ? 'tiny' : 'linear';
+setSampleProfile(profileSelect.value);
 
 // The frame is decoded at the chosen profile's input size, so switching
 // profiles has to re-decode it or the picture stops being what the network
 // would see -- and the saliency overlay, which is one byte per input pixel,
 // stops registering with it.
-profileSelect.addEventListener('change', () => { showFrame(frameIdx); });
+profileSelect.addEventListener('change', () => setSampleProfile(profileSelect.value));
 
 btn.addEventListener('click', async () => {
   dismissHint();
@@ -101,7 +103,7 @@ btn.addEventListener('click', async () => {
       // Whatever frame you were looking at when you pressed train is the one
       // the run explains itself with -- picking it beforehand is the point of
       // the picker working with no model loaded.
-      sampleId: currentFrame()?.id ?? null,
+      sampleId: sampleFrame.frame?.id ?? null,
     });
   }
 });
@@ -209,117 +211,34 @@ for (const b of saliencyBtns) {
   });
 }
 
-// The frame picker is the page's own, not the worker's: tub.frames already
-// holds every recorded frame's steering and throttle in memory, and the image
-// for any one of them is a single dbGet away. So scrubbing works before a
-// model exists, and once one does it still never waits on the worker for the
-// picture -- only for the reading the worker alone can give.
-let frameIdx = 0;              // position in tub.frames
-let frameBitmap = null;        // decoded picture for frameIdx, at input size
-let frameDrawSeq = 0;          // abandons decodes the thumb has moved past
-let frameDebounce = null;      // gates only the worker request, never the draw
-
-function currentFrame() { return tub.frames[frameIdx] || null; }
-
-// The backprop panel below steps on the same frame this section explains,
-// rather than owning a second picker: one picture, one set of recorded
-// numbers, one dbGet. Subscribers get the current frame immediately on
-// subscribing, because module import order means learnui.js can register
-// after the opening frame has already been shown.
-//
-// The bitmap handed over is the live one -- showFrame() closes a bitmap only
-// when its replacement has arrived, so it stays valid until the next frame
-// is emitted. Subscribers must therefore read it at point of use and never
-// hold a captured reference across an await.
-const sampleFrameListeners = new Set();
-export function onSampleFrame(fn) {
-  sampleFrameListeners.add(fn);
-  if (frameBitmap && currentFrame()) fn(sampleFrameEvent());
-}
-
-function sampleFrameEvent() {
-  return { frame: currentFrame(), bitmap: frameBitmap, profile: profileSelect.value };
-}
-
-function emitSampleFrame() {
-  if (!frameBitmap || !currentFrame()) return;
-  const event = sampleFrameEvent();
-  for (const fn of sampleFrameListeners) fn(event);
-}
-
 // Whatever the model most recently said, but only if it was talking about the
 // frame on screen. Anything else is a reading for a picture that is no longer
 // there, and showing it against this one would be a straightforward lie.
 function readingForCurrent() {
-  const s = training.sample, frame = currentFrame();
+  const s = training.sample, frame = sampleFrame.frame;
   return s && frame && s.id === frame.id ? s : null;
-}
-
-async function showFrame(idx, { ask = true } = {}) {
-  if (!tub.frames.length) return;
-  frameIdx = Math.max(0, Math.min(tub.frames.length - 1, idx));
-  const frame = currentFrame();
-  drawSample(); // numbers, slider position and overlay state, before any I/O
-  const seq = ++frameDrawSeq;
-  const bmp = await decodeTubFrame(frame.id);
-  if (seq !== frameDrawSeq) { if (bmp) bmp.close(); return; } // scrubbed past
-  if (frameBitmap) frameBitmap.close();
-  frameBitmap = bmp;
-  drawSample();
-  emitSampleFrame();
-  // The expensive half is debounced, the picture above is not: a drag across
-  // 900 frames should cost 900 cheap decodes and one gradient pass, not 900
-  // of each.
-  if (!ask) return;
-  clearTimeout(frameDebounce);
-  frameDebounce = setTimeout(() => {
-    frameDebounce = null;
-    const f = currentFrame();
-    if (f) trainSampleAt(f.id);
-  }, 50);
-}
-
-// Decoded to the model's input size rather than the recorded size, because
-// this panel's whole claim is that it shows what the network sees -- and the
-// saliency overlay is one byte per input pixel, so anything else would fail
-// to register with it.
-async function decodeTubFrame(id) {
-  try {
-    const rec = await dbGet(id);
-    if (!rec || !rec.img) return null;
-    const src = await createImageBitmap(rec.img);
-    const { w, h } = PROFILES[profileSelect.value] || PROFILES[DEFAULT_PROFILE];
-    const out = await createImageBitmap(src, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' });
-    src.close();
-    return out;
-  } catch (err) {
-    console.warn('sample frame: could not decode', id, err);
-    return null;
-  }
 }
 
 frameSlider.addEventListener('input', () => {
   showFrame(Number(frameSlider.value));
 });
 
-// Opening frame, same rule the worker uses when the page has not chosen one:
-// the sharpest turn in the recording, because a frame where the car is barely
-// steering has no decision in it to explain. Re-evaluated whenever the Train
-// screen is opened, since a few more laps may have been recorded since the
-// last look -- but never once the user has scrubbed somewhere deliberately.
-let framePicked = false;
-function pickOpeningFrame() {
-  if (framePicked || !tub.frames.length) return;
-  framePicked = true;
-  let best = 0;
-  for (let i = 1; i < tub.frames.length; i++) {
-    if (Math.abs(tub.frames[i].steer) > Math.abs(tub.frames[best].steer)) best = i;
-  }
-  showFrame(best);
-}
-
-onModeChange((mode) => {
-  if (mode === 'train') pickOpeningFrame();
+// The picture is shared state now (sim/sampleframe.js); asking the worker to
+// explain it is not, so the debounce stays here. A drag across 900 frames
+// should cost 900 cheap decodes and one gradient pass, not 900 of each --
+// and a move made only to catch up with the worker (ask:false) must not ask
+// it anything back.
+let frameDebounce = null;
+onSampleFrame((e) => {
+  if (e.pending) { drawSample(); return; }
+  drawSample();
+  if (!e.ask || !e.frame) return;
+  clearTimeout(frameDebounce);
+  frameDebounce = setTimeout(() => {
+    frameDebounce = null;
+    const f = sampleFrame.frame;
+    if (f) trainSampleAt(f.id);
+  }, 50);
 });
 
 // The worker announces which frame it explained each epoch. Normally that is
@@ -332,7 +251,7 @@ function followWorkerFrame() {
   const sample = training.sample;
   if (!sample || frameDebounce !== null || sample.id === followedId) return;
   followedId = sample.id;
-  if (currentFrame()?.id === sample.id) return;
+  if (sampleFrame.frame?.id === sample.id) return;
   const idx = tub.frames.findIndex((f) => f.id === sample.id);
   if (idx >= 0) showFrame(idx, { ask: false });
 }
@@ -375,8 +294,8 @@ function drawSaliency(reading) {
   // overlay across the frame either way (see #sampleSaliency), so taking the
   // map's dimensions here keeps the heat spread over the whole picture
   // instead of packed into a corner of it.
-  const w = reading.w || (frameBitmap && frameBitmap.width);
-  const h = reading.h || (frameBitmap && frameBitmap.height);
+  const w = reading.w || (sampleFrame.bitmap && sampleFrame.bitmap.width);
+  const h = reading.h || (sampleFrame.bitmap && sampleFrame.bitmap.height);
   if (!w || !h || map.length !== w * h) return;
   if (saliencyCanvas.width !== w || saliencyCanvas.height !== h) {
     saliencyCanvas.width = w;
@@ -397,19 +316,19 @@ function drawSaliency(reading) {
 // which is what lets you line up an interesting frame before committing to a
 // run rather than discovering afterwards that it explained a straight.
 function drawSample() {
-  const frame = currentFrame();
+  const frame = sampleFrame.frame;
   sampleWrap.hidden = !frame;
   if (!frame) return;
   syncSlider();
-  if (frameBitmap) {
+  if (sampleFrame.bitmap) {
     // Display size is CSS's job (see #sampleFrameWrap) -- this is the drawing
     // buffer, which must stay at the model's true input resolution for the
     // overlay to line up with it pixel for pixel.
-    if (sampleCanvas.width !== frameBitmap.width || sampleCanvas.height !== frameBitmap.height) {
-      sampleCanvas.width = frameBitmap.width;
-      sampleCanvas.height = frameBitmap.height;
+    if (sampleCanvas.width !== sampleFrame.bitmap.width || sampleCanvas.height !== sampleFrame.bitmap.height) {
+      sampleCanvas.width = sampleFrame.bitmap.width;
+      sampleCanvas.height = sampleFrame.bitmap.height;
     }
-    sampleCtx.drawImage(frameBitmap, 0, 0);
+    sampleCtx.drawImage(sampleFrame.bitmap, 0, 0);
   }
   const reading = readingForCurrent();
   drawSaliency(reading);
@@ -430,8 +349,8 @@ function syncSlider() {
   const count = tub.frames.length;
   frameSlider.disabled = count < 2;
   frameSlider.max = String(Math.max(0, count - 1));
-  if (frameDebounce === null) frameSlider.value = String(frameIdx);
-  frameTag.textContent = count ? `${frameIdx + 1} / ${count}` : '—';
+  if (frameDebounce === null) frameSlider.value = String(sampleFrame.index);
+  frameTag.textContent = count ? `${sampleFrame.index + 1} / ${count}` : '—';
 }
 
 function renderMetrics() {

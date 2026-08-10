@@ -34,8 +34,9 @@ donkeycar, not just conceptually similar to one.
 - **Train**: one button trains the model in a background Web Worker (WebGPU
   -> WebGL -> CPU, whichever this browser supports) with a live per-batch
   loss chart, so the tab never freezes while it trains.
-- **Backprop, step by step**: a teaching panel that takes the frame you are
-  looking at and runs one training step by hand, five acts at a time --
+- **Backprop, step by step**: a teaching screen of its own, under **learn ->
+  backprop visualizer** in the hamburger menu. It takes one frame you
+  recorded and runs a single training step by hand, five acts at a time --
   activations forward, the error appearing where the prediction meets what
   you recorded, gradients traced back as blame, one weight update scaled by
   the learning rate, then the same frame again with the error visibly

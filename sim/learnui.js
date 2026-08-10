@@ -1,5 +1,5 @@
 import * as bp from '../train/backprop.js';
-import { onSampleFrame } from './trainui.js';
+import { onSampleFrame, sampleFrame, showFrame } from './sampleframe.js';
 import { onModeChange, getMode } from './mode.js';
 import { onTraining } from '../train/trainer.js';
 import { listModels, getActiveModelId } from '../train/models.js';
@@ -31,6 +31,9 @@ const lrSlider = document.getElementById('bpLr');
 const sourceSelect = document.getElementById('bpSource');
 const logScale = document.getElementById('bpLogScale');
 const modelTag = document.getElementById('bpModelTag');
+const empty = document.getElementById('learnEmpty');
+const frameSlider = document.getElementById('bpFrameSlider');
+const frameTag = document.getElementById('bpFrameTag');
 
 // Log-spaced, because the interesting range is multiplicative: the distance
 // from 0.001 to 0.01 is the same lesson as 0.01 to 0.1, and a linear slider
@@ -316,7 +319,7 @@ function paintError(error) {
 // ---------- the acts ----------
 
 const CAPTIONS = {
-  idle: 'Press <b>run forward pass</b> to send the frame above through the network.',
+  idle: 'Press <b>run forward pass</b> to send the frame on the left through the network.',
   forward: 'The frame goes through layer by layer. These pale bars are <b>activations</b> — how strongly each layer responds. Nothing is wrong yet, because nothing has been compared to anything.',
   error: 'Now the two predictions meet what you actually recorded. The gap is the <em>error</em>, and this is the first moment it exists.',
   backward: 'That error is traced back through every layer as blame — the <em>gradient</em> of the loss with respect to each layer\'s weights. It does not shrink neatly on the way back; watch how much smaller the early layers are than the heads.',
@@ -432,7 +435,7 @@ async function ensureSandbox() {
     const next = await bp.createSandbox({ source });
     sandbox = next;
     buildDiagram(sandbox);
-    modelTag.textContent = `· ${sandbox.inputW}×${sandbox.inputH} input, ${sandbox.columns.reduce((n, c) => n + c.params, 0).toLocaleString()} weights`;
+    modelTag.textContent = `${sandbox.inputW}×${sandbox.inputH} input · ${sandbox.columns.reduce((n, c) => n + c.params, 0).toLocaleString()} weights`;
     applyLatestFrame();
     resetActs();
   })().finally(() => { building = null; });
@@ -484,6 +487,21 @@ function syncControls() {
   resetBtn.disabled = !sandbox;
   lrValue.textContent = lr().toFixed(4);
   stepsValue.textContent = sandbox ? String(sandbox.steps) : '0';
+}
+
+frameSlider.addEventListener('input', () => { showFrame(Number(frameSlider.value)); });
+
+// Never written while the thumb is down, or it fights the drag.
+let dragging = false;
+frameSlider.addEventListener('pointerdown', () => { dragging = true; });
+addEventListener('pointerup', () => { dragging = false; });
+
+function syncFrameSlider() {
+  const count = sampleFrame.count;
+  frameSlider.disabled = count < 2;
+  frameSlider.max = String(Math.max(0, count - 1));
+  if (!dragging) frameSlider.value = String(sampleFrame.index);
+  frameTag.textContent = count ? `${sampleFrame.index + 1} / ${count}` : '—';
 }
 
 nextBtn.addEventListener('click', () => { advance(); });
@@ -539,13 +557,16 @@ async function refreshSources() {
 // ---------- wiring ----------
 
 onSampleFrame((event) => {
+  syncFrameSlider();
+  if (event.pending) return;   // numbers moved; the picture has not arrived yet
   latest = event;
   panel.hidden = false;
+  empty.hidden = true;
   drawFrameThumb();
-  // The frame arrives after the mode change that asked for it -- trainui's
-  // decode is async -- so this is where the sandbox actually gets built on a
-  // cold open, not in the onModeChange below.
-  if (!sandbox) { if (getMode() === 'train') ensureSandbox(); return; }
+  // The frame arrives after the mode change that asked for it -- the decode
+  // is async -- so this is where the sandbox actually gets built on a cold
+  // open, not in the onModeChange below.
+  if (!sandbox) { if (getMode() === 'learn') ensureSandbox(); return; }
   applyLatestFrame();
   // A different frame is a different question: the acts start over rather
   // than leaving act 3's bars sitting under act 1's picture.
@@ -555,12 +576,13 @@ onSampleFrame((event) => {
 onTraining((t) => { if (t.state === 'done') refreshSources(); });
 
 onModeChange((mode) => {
-  if (mode !== 'train') { stopAuto(); return; }
+  if (mode !== 'learn') { stopAuto(); return; }
+  syncFrameSlider();
   if (latest) ensureSandbox();
 });
 
 refreshSources().then(() => {
-  if (getMode() === 'train' && latest) ensureSandbox();
+  if (getMode() === 'learn' && latest) ensureSandbox();
 });
 
 syncControls();
