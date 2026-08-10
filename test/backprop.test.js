@@ -76,6 +76,40 @@ test('the hamburger reaches the backprop visualizer', async () => {
   assert.equal(state.onTrainScreen, false, 'the panel should no longer be on the Train screen');
 });
 
+// Regression: the screen retries until it has a PICTURE, not merely until a
+// frame exists. tubPush() appends to tub.frames synchronously but encodes the
+// PNG and writes it to IndexedDB afterwards, so for a few milliseconds there
+// is a frame that cannot be read back. Latching the opening pick on that left
+// the stage permanently blank with a full tub behind it -- and because the
+// retry loop considered itself satisfied, nothing ever went back for it.
+//
+// Recording while ALREADY on the screen is what makes the window reachable,
+// which is exactly what "load dataset" does.
+test('a frame recorded while the screen is open still gets its picture', async () => {
+  await page.evaluate(() => __sim.setMode('learn'));
+  await page.evaluate(async () => {
+    const { tubPush } = await import('/data/tub.js');
+    // Deliberately NOT awaiting waitForTubIdle(): the point is to be looking
+    // at the screen during the window where the frame exists and its image
+    // does not.
+    for (let i = 0; i < 8; i++) tubPush(i * 0.05, Math.sin(i) * 0.8, 0.5);
+  });
+
+  await waitFor(page, () => {
+    const canvas = document.getElementById('bpFrame');
+    return canvas && canvas.width > 0 && canvas.height > 0;
+  }, { timeout: 15000, message: 'the frame thumbnail never arrived after an in-place recording' });
+
+  const shown = await page.evaluate(() => ({
+    empty: !document.getElementById('learnEmpty').hidden,
+    panelHidden: document.getElementById('backpropPanel').hidden,
+    tag: document.getElementById('bpFrameTag').textContent,
+  }));
+  assert.equal(shown.empty, false, 'the empty-state message should have gone away');
+  assert.equal(shown.panelHidden, false, 'the stage should be showing');
+  assert.match(shown.tag, /\/ 8$/, `expected the picker to span the recording, got "${shown.tag}"`);
+});
+
 test('the panel draws a column per layer, plus the frame and the error', async () => {
   await setupPanel();
   const counts = await page.evaluate(() => ({
@@ -127,15 +161,18 @@ test('the backward pass reports a finite gradient for every weighted layer', asy
 
 test('one step lowers the loss on the frame it stepped on', async () => {
   await page.evaluate(() => { __sim.learn.reset(); __sim.learn.setLr(0.01); });
-  await advance(1);
+  await advance(2); // act 1 forward, act 2 compare -- the loss appears at 2
   const before = Number(await lossText());
   assert.ok(Number.isFinite(before) && before > 0, `expected a real starting loss, got ${before}`);
 
-  await advance(4); // error, backward, step, forward again
+  // One full lap of the cycle: backward, update, forward, compare. Landing
+  // back on act 2 is the point -- the shrink shows up in the same place the
+  // error first appeared, not in a special finale act.
+  await advance(4);
   const after = Number(await lossText());
   const state = await page.evaluate(() => ({ act: __sim.learn.act, steps: __sim.learn.steps }));
 
-  assert.equal(state.act, 'again');
+  assert.equal(state.act, 'error');
   assert.equal(state.steps, 1, 'exactly one weight update should have been applied');
   assert.ok(after < before, `loss should fall after a step: ${before} -> ${after}`);
 });
@@ -157,14 +194,14 @@ test('the applied step is the gradient scaled by the learning rate', async () =>
 
 test('reset puts the weights back exactly', async () => {
   await page.evaluate(() => __sim.learn.reset());
-  await advance(1);
+  await advance(2); // the loss is published at act 2, not act 1
   const restored = Number(await lossText());
   await advance(4);
   const stepped = Number(await lossText());
   assert.ok(stepped < restored, 'sanity: the second step should also help');
 
   await page.evaluate(() => __sim.learn.reset());
-  await advance(1);
+  await advance(2);
   const again = Number(await lossText());
   assert.equal(again, restored, `reset should reproduce the starting loss exactly: ${restored} vs ${again}`);
   assert.equal(await page.evaluate(() => __sim.learn.steps), 0, 'reset should zero the step counter');
@@ -177,10 +214,11 @@ test('reset puts the weights back exactly', async () => {
 // the instability that is reliable, so it is the instability that is tested.
 async function lossOverSteps(rate, steps) {
   await page.evaluate((r) => { __sim.learn.reset(); __sim.learn.setLr(r); }, rate);
-  await advance(1);
+  await advance(2); // forward, compare -- the loss is published at act 2
   const series = [Number(await lossText())];
+  // Four acts is one step, every time, and lands back on the comparison.
   for (let i = 0; i < steps; i++) {
-    await advance(i === 0 ? 4 : 3); // first step needs the compare act too
+    await advance(4);
     series.push(Number(await lossText()));
   }
   return series;
@@ -225,7 +263,7 @@ test('switching the model source rebuilds a working sandbox', async () => {
   await waitFor(page, () => window.__sim.learn.ready, { timeout: 30000, message: 'rebuild never became ready' });
 
   await page.evaluate(() => __sim.learn.setLr(0.02));
-  await advance(1);
+  await advance(2);
   const before = Number(await lossText());
   await advance(4);
   const after = Number(await lossText());
@@ -236,14 +274,14 @@ test('switching the model source rebuilds a working sandbox', async () => {
 
 // Regression: with the stagger running (i.e. NOT reduced motion, which the
 // rest of this file emulates), act 4's reveal timers were still pending when
-// act 5 cleared the gradient bars and awaited its forward pass -- so they
-// fired during that await and painted the bars back in, against weights that
-// no longer existed. Clicking through at a normal pace was enough.
+// the next act 1 cleared the gradient bars and awaited its forward pass -- so
+// they fired during that await and painted the bars back in, against weights
+// that no longer existed. Clicking through at a normal pace was enough.
 test('a forward pass leaves no gradient bars behind, mid-animation', async () => {
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
   try {
     await page.evaluate(() => { __sim.learn.reset(); __sim.learn.setLr(0.01); });
-    await advance(5); // straight through to act 5 without waiting for reveals
+    await advance(5); // through a whole cycle back to act 1, no waiting
     const state = await page.evaluate(() => ({
       act: __sim.learn.act,
       gradients: [...document.querySelectorAll('#bpLayers .bpTrackGrad .bpFill')]
@@ -251,7 +289,7 @@ test('a forward pass leaves no gradient bars behind, mid-animation', async () =>
       steps: [...document.querySelectorAll('#bpLayers .bpTrackGrad .bpStep')]
         .map((el) => parseFloat(el.style.height) || 0),
     }));
-    assert.equal(state.act, 'again');
+    assert.equal(state.act, 'forward');
     assert.ok(state.gradients.every((h) => h === 0),
       `gradient bars should be cleared by the forward pass, got ${JSON.stringify(state.gradients)}`);
     assert.ok(state.steps.every((h) => h === 0),
@@ -271,8 +309,8 @@ test('stepping the same frame repeatedly drives its loss toward zero', async () 
   await page.evaluate(() => { __sim.learn.reset(); __sim.learn.setLr(0.05); });
   await advance(2);
   const before = Number(await lossText());
-  // The loop rejoins at the backward pass, so three advances per step.
-  await advance(3 * 18);
+  // Four acts per step now that the cycle wraps cleanly.
+  await advance(4 * 18);
   const after = Number(await lossText());
   // Deliberately a loose bound. How fast a given random initialisation
   // collapses onto one frame varies by more than an order of magnitude --

@@ -5,16 +5,23 @@ import { onTraining } from '../train/trainer.js';
 import { listModels, getActiveModelId } from '../train/models.js';
 
 // ---------- backprop panel ----------
-// The five acts of one training step: forward, compare, backward, step,
-// forward again. Everything tensor-shaped is in train/backprop.js; this file
-// only moves DOM around, the same split trainui.js has against trainer.js.
+// One training step is four acts -- forward, compare, backward, update --
+// and then it starts over. That cycle is the point: the "run it again and
+// watch the error shrink" payoff is not a fifth act, it is act 1 of the next
+// step, which is why the numbering wraps instead of running to 5. An earlier
+// version did label it act 5 and then jumped back to 3, which read as two
+// acts going missing on every lap.
+//
+// Everything tensor-shaped is in train/backprop.js; this file only moves DOM
+// around, the same split trainui.js has against trainer.js.
 //
 // The order matters more than it looks. Red does not appear until the output
 // meets the label, because before that point there is no error to draw --
 // only activations. The learning rate is applied once, to the weight update,
-// and nowhere else. And the payoff is act 5 rather than act 3: what shrinks
-// is the loss on the NEXT pass, not the gradient on its way back. Getting
-// any of those wrong would teach a mechanism this app does not implement.
+// and nowhere else. And the payoff lands on the next lap's act 1/2 rather
+// than on act 3: what shrinks is the loss on the NEXT forward pass, not the
+// gradient on its way back. Getting any of those wrong would teach a
+// mechanism this app does not implement.
 
 const panel = document.getElementById('backpropPanel');
 const stage = document.getElementById('bpLayers');
@@ -50,18 +57,17 @@ const lrToSlider = (rate) => 100 * (Math.log(rate / LR_MIN) / Math.log(LR_MAX / 
 lrSlider.step = '0.01';
 lrSlider.value = String(lrToSlider(DEFAULT_LR));
 
-const ACTS = ['idle', 'forward', 'error', 'backward', 'step', 'again'];
+const ACTS = ['idle', 'forward', 'error', 'backward', 'step'];
 const BUTTON_TEXT = {
   idle: 'run forward pass',
   forward: 'show the error',
   error: 'propagate backward',
   backward: 'apply the step',
   step: 'run forward again',
-  again: 'propagate backward',
 };
 const ACT_LABEL = {
   idle: 'ready', forward: '1 · forward', error: '2 · compare',
-  backward: '3 · backward', step: '4 · update', again: '5 · forward again',
+  backward: '3 · backward', step: '4 · update',
 };
 
 const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)');
@@ -77,8 +83,8 @@ let reveal = [];          // pending stagger timers, cancelled on any new act
 let cols = [];            // per-layer column elements, by layer name
 let errorCol = null;
 let frameCanvas = null;
-let errorScale = 0;       // held ACROSS acts: act 5's bars must be directly
-                          // comparable with act 2's or the shrink is invisible
+let errorScale = 0;       // held ACROSS steps: each lap's error bars must be
+                          // comparable with the last or the shrink is invisible
 let lastForward = null;
 let lastBackward = null;
 
@@ -303,8 +309,9 @@ function paintStep() {
 
 function paintError(error) {
   const magnitude = Math.max(Math.abs(error.steer), Math.abs(error.throttle));
-  // Fixed on first sight and kept: act 5 re-uses act 2's scale, because a bar
-  // that renormalised every pass could never show the error getting smaller.
+  // Fixed on first sight and kept: every lap's act 2 re-uses the first one's
+  // scale, because a bar that renormalised each time could never show the
+  // error getting smaller.
   if (!errorScale) errorScale = Math.max(magnitude, 0.05);
   const scale = (v) => v / errorScale;
   setBar(errorCol.fills[0].fill, scale(Math.abs(error.steer)));
@@ -318,17 +325,25 @@ function paintError(error) {
 
 // ---------- the acts ----------
 
+// Acts 1 and 2 read differently once a step has been taken: the first time
+// through they introduce activations and error, and on every lap after that
+// they are the payoff -- the same frame, the same comparison, a smaller gap.
+// Same act, same number, different thing worth saying about it.
 const CAPTIONS = {
   idle: 'Press <b>run forward pass</b> to send the frame on the left through the network.',
   forward: 'The frame goes through layer by layer. These pale bars are <b>activations</b> — how strongly each layer responds. Nothing is wrong yet, because nothing has been compared to anything.',
   error: 'Now the two predictions meet what you actually recorded. The gap is the <em>error</em>, and this is the first moment it exists.',
   backward: 'That error is traced back through every layer as blame — the <em>gradient</em> of the loss with respect to each layer\'s weights. It does not shrink neatly on the way back; watch how much smaller the early layers are than the heads.',
   step: 'Each weight moves against its gradient, scaled by the learning rate: <b>Δw = −rate × gradient</b>. The white sliver inside each bar is that step. Change the rate and it resizes; the gradient behind it does not.',
-  again: 'The same frame, through the updated network. The error bars are shorter. <b>That</b> is what learning looks like — not the gradient shrinking on the way back, but the model being less wrong the next time it is asked.',
+};
+const REPEAT_CAPTIONS = {
+  forward: 'The <b>same frame</b> again, through the updated network. The activations have shifted. Whether that was an improvement is not visible yet — the error bars and the loss still show the last comparison, and stay there until the next one.',
+  error: 'The same comparison, one update later: the error bars are <b>shorter</b>. That is what learning looks like — not the gradient shrinking on its way back, but the model being less wrong the next time it is asked. Keep going and they keep coming down.',
 };
 
 function setCaption(name) {
-  caption.innerHTML = CAPTIONS[name];
+  const repeated = sandbox && sandbox.steps > 0 && REPEAT_CAPTIONS[name];
+  caption.innerHTML = repeated || CAPTIONS[name];
   actName.textContent = ACT_LABEL[name];
 }
 
@@ -337,10 +352,11 @@ async function advance() {
   busy = true;
   nextBtn.disabled = true;
   try {
-    const next = ACTS[(ACTS.indexOf(act) + 1) % ACTS.length];
-    // After act 5 the network has just been run forward, so the loop rejoins
-    // at the backward pass rather than repeating a pass we already have.
-    const target = act === 'again' ? 'backward' : next;
+    // Plain wrap: after the update comes another forward pass, which is act 1
+    // of the next step rather than a finale of this one. 'idle' is only ever
+    // the starting position, so the cycle skips back past it.
+    const at = ACTS.indexOf(act);
+    const target = at >= ACTS.length - 1 ? 'forward' : ACTS[at + 1];
     await runAct(target);
     act = target;
   } catch (err) {
@@ -360,8 +376,7 @@ async function runAct(name) {
   // longer exist. Clicking through quickly is enough to trigger it.
   clearReveal();
   switch (name) {
-    case 'forward':
-    case 'again': {
+    case 'forward': {
       dimAll();
       // The gradient bars still on screen were computed against the weights
       // as they were BEFORE the step. Leaving them up next to fresh
@@ -371,12 +386,18 @@ async function runAct(name) {
       lastBackward = null;
       lastForward = await bp.forward(sandbox);
       paintActivations(lastForward.activations);
-      lossValue.textContent = fmtMag(lastForward.loss, 4);
-      if (name === 'again') paintError(lastForward.error);
+      // The loss and the error bars deliberately do NOT move here. This act's
+      // whole claim is that nothing is right or wrong yet -- the network has
+      // not been shown the answer -- and a loss number ticking over would
+      // contradict the sentence directly under it. They stay on the previous
+      // reading until act 2 compares again, which is also what makes the
+      // change visible: the bar animates from the old height to the new one
+      // instead of appearing from nothing.
       break;
     }
     case 'error': {
       paintError(lastForward.error);
+      lossValue.textContent = fmtMag(lastForward.loss, 4);
       break;
     }
     case 'backward': {

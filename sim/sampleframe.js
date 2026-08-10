@@ -99,14 +99,26 @@ async function decode(id) {
 // that studies frames is opened, since a few more laps may have been recorded
 // since -- but never once the user has scrubbed somewhere deliberately.
 let picked = false;
-export function ensureOpeningFrame() {
-  if (picked || !tub.frames.length) return;
-  picked = true;
-  let best = 0;
-  for (let i = 1; i < tub.frames.length; i++) {
-    if (Math.abs(tub.frames[i].steer) > Math.abs(tub.frames[best].steer)) best = i;
+let picking = false;
+export async function ensureOpeningFrame() {
+  if (picked || picking || !tub.frames.length) return;
+  picking = true;
+  try {
+    let best = 0;
+    for (let i = 1; i < tub.frames.length; i++) {
+      if (Math.abs(tub.frames[i].steer) > Math.abs(tub.frames[best].steer)) best = i;
+    }
+    await showFrame(best);
+    // Latched only once there is actually a picture, which is not the same
+    // as there being a frame. tubPush() appends to tub.frames synchronously
+    // but encodes the PNG and writes it to IndexedDB afterwards, so a frame
+    // is visible here for some milliseconds before it can be read back --
+    // and latching on that would leave this screen permanently blank, with
+    // the retry loop below satisfied and a full tub behind it.
+    if (bitmap) picked = true;
+  } finally {
+    picking = false;
   }
-  showFrame(best);
 }
 
 // The tub can fill up after one of these screens is already open: loadTub()

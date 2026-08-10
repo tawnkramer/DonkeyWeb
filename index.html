@@ -1080,10 +1080,19 @@
         gradient multiplied by the rate. Drag <b>rate</b> and watch the sliver
         resize while the orange bar behind it stays exactly where it was.</p>
 
-        <p><b>Then the same frame goes through again,</b> and the error bars
-        come back shorter. That is the whole mechanism: not the error
-        shrinking as it travels backward, but the model being slightly less
-        wrong the next time it is asked.</p>
+        <p><b>Then it starts over</b> — and that is worth noticing, because
+        there is no fifth act. Running the frame again <em>is</em> act 1 of the
+        next step, and the shorter error bars turn up at act 2, in the same
+        place the error first appeared. Four acts on a loop is the whole
+        mechanism: not the error shrinking as it travels backward, but the
+        model being slightly less wrong each time it is asked.</p>
+
+        <p><b>Acts 1 and 2 hold their numbers between comparisons.</b> Run the
+        frame forward after an update and the loss and the error bars do not
+        move yet — they still show the previous comparison, and only change
+        when act 2 compares again. That is deliberate: it is what lets you see
+        the bar travel down from where it used to be, rather than watching it
+        vanish and reappear at some other height.</p>
 
         <p><b>What to watch for:</b> push the rate to the top of its range and
         keep stepping. The loss stops falling smoothly and starts bouncing —
