@@ -116,6 +116,52 @@ export async function dbGetAll() {
   });
 }
 
+// Without this the tub lives in "best effort" storage, which the browser is
+// free to throw away wholesale when the disk gets tight -- and it does. A
+// dev-server origin is a prime candidate for that: it carries none of the
+// engagement signals (bookmarks, repeat visits, installs) that make a browser
+// reluctant to evict, while a recording of lossless PNG frames is one of the
+// largest things on the origin. The failure is silent and total: the laps are
+// simply not there next time the page opens, with nothing to recover from.
+//
+// Persistent storage is exempt from that automatic eviction -- only an
+// explicit clear by the user removes it. Chrome grants it without a prompt on
+// localhost; elsewhere it may decline, which is why this reports rather than
+// assumes. It is not protection against a genuinely full disk, where the
+// writes themselves start failing, only against being collected as spare
+// capacity for something else.
+export async function requestPersistence() {
+  if (!navigator.storage?.persist) return { supported: false, persisted: false };
+  try {
+    // Asking again when already granted is a no-op, but skipping the second
+    // call keeps the (potentially prompting) path off the startup route for
+    // everyone who has already answered it once.
+    const already = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    const persisted = already || await navigator.storage.persist();
+    if (!persisted) {
+      console.warn(
+        'donkeyweb: the browser would not mark this origin persistent, so recorded laps ' +
+        'may be evicted if the disk runs low. Export anything you care about (Data → save).');
+    }
+    return { supported: true, persisted };
+  } catch (err) {
+    console.warn('donkeyweb: could not request persistent storage', err);
+    return { supported: true, persisted: false };
+  }
+}
+
+// Bytes used and available for this origin, or null where unsupported. Only
+// ever an estimate -- browsers deliberately blur it to limit fingerprinting.
+export async function storageEstimate() {
+  if (!navigator.storage?.estimate) return null;
+  try {
+    const { usage, quota } = await navigator.storage.estimate();
+    return { usage, quota };
+  } catch {
+    return null;
+  }
+}
+
 // Model metadata deliberately lives in the app database rather than
 // TensorFlow.js's private `models_store`, so the UI can list models without
 // depending on tfjs's internal IndexedDB schema.

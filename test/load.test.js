@@ -193,6 +193,44 @@ test('the frame picker scrubs recorded frames with no model trained', async () =
   await page.click('.navbtn[data-mode="drive"]');
 });
 
+// Recorded laps were lost once to exactly this: a disk low on space, and a
+// browser well within its rights to reclaim best-effort storage from a
+// dev-server origin. The request has to happen on the startup path, before
+// there is anything worth losing, so what is asserted is that loading the
+// page is enough to trigger it -- no driving, no recording, no interaction.
+test('loading the page asks the browser to keep recorded laps', async () => {
+  const fresh = await browser.newPage();
+  try {
+    // Counted from before the document exists, since the call happens during
+    // module evaluation -- a spy installed after goto() would always miss it.
+    await fresh.evaluateOnNewDocument(() => {
+      window.__persistCalls = 0;
+      if (navigator.storage && navigator.storage.persist) {
+        const real = navigator.storage.persist.bind(navigator.storage);
+        navigator.storage.persist = () => { window.__persistCalls++; return real(); };
+      }
+    });
+    await fresh.goto(`${baseUrl}/index.html`, { waitUntil: 'load', timeout: 20000 });
+    const state = await waitFor(fresh, () => {
+      if (!window.__sim) return null;
+      return navigator.storage.persisted().then((persisted) => ({
+        persisted, calls: window.__persistCalls,
+      }));
+    }, { timeout: 15000, message: 'persistence was never requested on load' });
+    // Either the call was made, or the origin was already marked persistent
+    // from an earlier load in this profile -- both mean the laps are safe,
+    // and re-asking when already granted is deliberately skipped.
+    assert.ok(state.calls > 0 || state.persisted,
+      'expected startup to request persistent storage (or find it already granted)');
+
+    const estimate = await fresh.evaluate(() => window.__sim.storageEstimate());
+    assert.ok(estimate && Number.isFinite(estimate.quota) && estimate.quota > 0,
+      `expected a usable storage estimate, got ${JSON.stringify(estimate)}`);
+  } finally {
+    await fresh.close();
+  }
+});
+
 test('window.__sim debug hook exposes a fully-built scene', async () => {
   // Counted recursively, not as scene.children.length: the active world's
   // road and scenery each hang off the scene as a single Group (that

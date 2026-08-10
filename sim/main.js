@@ -7,6 +7,7 @@ import { car, V, step, DT, resetCar, resetCarToStart, placeCarAt, offTrack, simT
 import { input, source, onReset } from './input.js';
 import { gamepad, pollGamepads } from './gamepad.js';
 import { tub, tubPush, loadTub } from '../data/tub.js';
+import { requestPersistence, storageEstimate } from '../data/db.js';
 import { drawHud, setFps } from './hud.js';
 import { training, trainStart, trainStop } from '../train/trainer.js';
 import { pilot, pilotPredict, setPilotActive, loadPilotModel, getAvailableModels, onPilotDeactivate } from '../train/autopilot.js';
@@ -71,6 +72,12 @@ onWorldChange(() => {
 // "drivable in under 10 seconds" startup goal on an IndexedDB round trip.
 loadTub();
 
+// Asked for at startup rather than at first record, because the answer has to
+// be in place before there is anything worth losing. Not awaited either: it
+// changes nothing about how the page runs, only whether the browser considers
+// the recorded laps disposable when the disk gets tight.
+requestPersistence();
+
 // Lightweight console/debug hook -- ES module state is private to its
 // module (unlike the old single-file version's classic <script>, where
 // every top-level const/let shared one global scope), so this is the
@@ -88,7 +95,7 @@ window.__sim = {
   // teleport leaves it stale, the cross-track error reads as enormous and
   // the off-track auto-reset immediately undoes the move. Go through this.
   placeCarAt, resetCarToStart, collision, hitTest,
-  stopSession,
+  stopSession, storageEstimate,
   get sessionOpen() { return sessionOpen; },
   get offTrack() { return offTrack; },
   get simTime() { return simTime; },
