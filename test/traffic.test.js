@@ -86,6 +86,56 @@ test('bot heading turns continuously through a junction', () => {
     `bot heading snapped ${largestStep.toFixed(2)} radians in one tick`);
 });
 
+test('turn indicators blink on the routed turn side, front and rear, then clear', () => {
+  const road = buildRoadGraph(streetGrid);
+  const built = buildTraffic({ bots: [{ route: ['A', 'C', 'D', 'B'], start: 0.12 }] }, road);
+  const lampNames = [];
+  built.group.traverse(o => { if (o.name.startsWith('turn-')) lampNames.push(o.name); });
+  assert.deepEqual(lampNames.sort(), [
+    'turn-left-front', 'turn-left-rear', 'turn-right-front', 'turn-right-rear',
+  ]);
+
+  let indicated = null;
+  let sawOn = false, sawOffWhileSignalling = false, cleared = false;
+  for (let i = 0; i < 1200; i++) {
+    built.fixedStep(1 / 50, null);
+    const state = built.states()[0];
+    if (state.turnSignal) {
+      indicated ||= state.turnSignal;
+      assert.equal(state.turnSignal, indicated, 'indicator changed sides during one turn');
+      if (state.blinkOn) sawOn = true; else sawOffWhileSignalling = true;
+    } else if (indicated) {
+      cleared = true;
+      break;
+    }
+  }
+  assert.ok(indicated === 'left' || indicated === 'right', 'bot never indicated its turn');
+  assert.ok(sawOn && sawOffWhileSignalling, 'turn lamps did not blink');
+  assert.ok(cleared, 'turn signal stayed on after the bot was straight again');
+});
+
+test('rear brake lights follow actual braking state', () => {
+  const road = buildRoadGraph(streetGrid);
+  const context = { states: () => ['NS', 'EW'].map(axis => ({
+    node: 'C', axis, phase: 'red', stopDistance: 9,
+  })) };
+  const built = buildTraffic({ bots: [{ route: ['A', 'C', 'D', 'B'], start: 0.12 }] }, road, context);
+  const brakeNames = [];
+  built.group.traverse(o => { if (o.name.startsWith('brake-')) brakeNames.push(o.name); });
+  assert.deepEqual(brakeNames.sort(), ['brake-left', 'brake-right']);
+
+  let sawBraking = false;
+  for (let i = 0; i < 600; i++) {
+    built.fixedStep(1 / 50, null);
+    const state = built.states()[0];
+    if (state.braking && state.speed > 0) sawBraking = true;
+  }
+  const stopped = built.states()[0];
+  assert.ok(sawBraking, 'brake lights never came on during deceleration');
+  assert.equal(stopped.speed, 0);
+  assert.equal(stopped.braking, false, 'brake lights remained on after braking ended');
+});
+
 test('a red signal stops a bot before its next crossing', () => {
   const road = buildRoadGraph(streetGrid);
   const STOP_DISTANCE = 9;

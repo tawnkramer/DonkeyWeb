@@ -9,6 +9,11 @@ const FOLLOW_GAP = 4.2;
 // centre and stopping inside the junction).
 const STOP_LINE_BUFFER = 1.15;
 const SIGNAL_LOOKAHEAD = 35;
+const INDICATOR_PERIOD = 0.8;
+const INDICATOR_ON = INDICATOR_PERIOD / 2;
+const LAMP_OFF = 0x241d18;
+const BRAKE_RED = 0xff2418;
+const TURN_YELLOW = 0xffb51b;
 
 function pushPoint(points, point, node = null) {
   const prev = points[points.length - 1];
@@ -127,6 +132,15 @@ function samplePath(path, s, lateral = 0) {
   return { point, tangent };
 }
 
+function lampMesh(color, x, z, name) {
+  const material = new THREE.MeshBasicMaterial({ color: LAMP_OFF });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.06), material);
+  mesh.position.set(x, 0.43, z);
+  mesh.name = name;
+  mesh.userData.onColor = color;
+  return { mesh, material };
+}
+
 function botMesh(color) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.42, 1.85), new THREE.MeshLambertMaterial({ color }));
@@ -134,7 +148,35 @@ function botMesh(color) {
   const cab = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.3, 0.78), new THREE.MeshLambertMaterial({ color: 0x26303a }));
   cab.position.set(0, 0.68, -0.1); cab.castShadow = true;
   group.add(body, cab);
-  return group;
+  const brakes = [
+    lampMesh(BRAKE_RED, -0.25, -0.955, 'brake-left'),
+    lampMesh(BRAKE_RED, 0.25, -0.955, 'brake-right'),
+  ];
+  const turns = {
+    left: [
+      lampMesh(TURN_YELLOW, -0.43, 0.955, 'turn-left-front'),
+      lampMesh(TURN_YELLOW, -0.43, -0.955, 'turn-left-rear'),
+    ],
+    right: [
+      lampMesh(TURN_YELLOW, 0.43, 0.955, 'turn-right-front'),
+      lampMesh(TURN_YELLOW, 0.43, -0.955, 'turn-right-rear'),
+    ],
+  };
+  for (const lamp of [...brakes, ...turns.left, ...turns.right]) group.add(lamp.mesh);
+  return { group, brakes, turns };
+}
+
+function setLamps(lamps, on) {
+  for (const lamp of lamps) lamp.material.color.setHex(on ? lamp.mesh.userData.onColor : LAMP_OFF);
+}
+
+function turnAt(path, crossing) {
+  const radius = Math.max(0.5, Math.min(4, crossing.pad / 2 - BOT_RADIUS));
+  const incoming = samplePolyline(path, crossing.s - radius).tangent;
+  const outgoing = samplePolyline(path, crossing.s + radius).tangent;
+  const cross = incoming.x * outgoing.z - incoming.z * outgoing.x;
+  if (Math.abs(cross) < 0.25) return null;
+  return cross > 0 ? 'left' : 'right';
 }
 
 export function buildTraffic(spec, road, context = { states: () => [] }) {
@@ -143,7 +185,8 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
   const colliders = [];
   const bots = (spec.bots || []).map((cfg, index) => {
     const path = resolveTrafficRoute(cfg.route, road);
-    const mesh = botMesh(cfg.color ?? [0xd85b45, 0x46a36f, 0xd3a936, 0x8d65bd][index % 4]);
+    const visual = botMesh(cfg.color ?? [0xd85b45, 0x46a36f, 0xd3a936, 0x8d65bd][index % 4]);
+    const mesh = visual.group;
     const s = safeSpawnPosition(path, (cfg.start ?? 0) * path.length);
     const collider = circleCollider(0, 0, BOT_RADIUS);
     group.add(mesh); colliders.push(collider);
@@ -155,6 +198,7 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
       routeKey: cfg.route.join('>'), mesh, collider, s, speed: 0,
       targetSpeed: cfg.speed ?? spec.speed ?? DEFAULT_SPEED,
       laneOffset: cfg.laneOffset ?? road.width / 4,
+      visual, braking: false, turnSignal: null, blinkOn: false,
     };
   });
 
@@ -166,8 +210,11 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
   }
   for (const bot of bots) place(bot);
 
+  let indicatorTime = 0;
   function fixedStep(dt, player) {
+    indicatorTime = wrap(indicatorTime + dt, INDICATOR_PERIOD);
     const signals = context.states('intersectionSignals');
+    let visualChanged = false;
     for (const bot of bots) {
       let clearance = Infinity;
       // Anything physically ahead along this route, including the player.
@@ -194,16 +241,43 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
         }
       }
       const desired = clearance <= 0 ? 0 : Math.min(bot.targetSpeed, Math.sqrt(2 * 3.5 * clearance));
+      const wasBraking = bot.braking;
+      bot.braking = desired < bot.speed - 1e-4;
       const accel = desired > bot.speed ? 2.2 : -4.5;
       bot.speed = Math.max(0, Math.min(desired, bot.speed + accel * dt));
       bot.s = wrap(bot.s + bot.speed * dt, bot.path.length);
+
+      let turnSignal = null;
+      for (const crossing of bot.path.crossings) {
+        const turn = turnAt(bot.path, crossing);
+        if (!turn) continue;
+        const delta = signedDistance(crossing.s, bot.s, bot.path.length);
+        const signal = signals.find(s => s.node === crossing.node);
+        const stopDistance = signal?.stopDistance ?? crossing.pad / 2 + 3;
+        const curveExit = Math.max(0.5, Math.min(4, crossing.pad / 2 - BOT_RADIUS));
+        if (delta >= -(stopDistance + 2) && delta <= curveExit + 1) {
+          turnSignal = turn;
+          break;
+        }
+      }
+      const blinkOn = !!turnSignal && indicatorTime < INDICATOR_ON;
+      if (wasBraking !== bot.braking || bot.turnSignal !== turnSignal || bot.blinkOn !== blinkOn) visualChanged = true;
+      bot.turnSignal = turnSignal;
+      bot.blinkOn = blinkOn;
+      setLamps(bot.visual.brakes, bot.braking);
+      setLamps(bot.visual.turns.left, turnSignal === 'left' && blinkOn);
+      setLamps(bot.visual.turns.right, turnSignal === 'right' && blinkOn);
       place(bot);
     }
-    return bots.some(b => b.speed > 0);
+    return visualChanged || bots.some(b => b.speed > 0);
   }
 
   return {
     group, colliders, fixedStep,
-    states: () => bots.map(b => ({ id: b.id, x: b.collider.x, z: b.collider.z, speed: b.speed, routePosition: b.s })),
+    states: () => bots.map(b => ({
+      id: b.id, x: b.collider.x, z: b.collider.z, speed: b.speed,
+      routePosition: b.s, braking: b.braking,
+      turnSignal: b.turnSignal, blinkOn: b.blinkOn,
+    })),
   };
 }
