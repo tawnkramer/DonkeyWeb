@@ -127,6 +127,16 @@ test('leaving the roadway does not reset the car', async () => {
   }, { timeout: 8000, message: 'car never got clear of the street without being reset' });
 
   assert.equal(escaped.thr, 0.6, 'throttle was zeroed -- an off-track reset fired');
+
+  // A graph's flattened centreline is not a driving boundary. Like city,
+  // street-grid is collision-controlled and must keep recording until the
+  // player actually hits something, including while crossing junction pads
+  // or otherwise driving away from that bookkeeping centreline.
+  const frames = await page.evaluate(() => window.__sim.tub.frames.length);
+  await waitFor(page, (n) => window.__sim.tub.frames.length > n, {
+    args: [frames], timeout: 4000,
+    message: 'recording stopped when street-grid reported off-track',
+  });
   await page.evaluate(() => { window.__sim.input.throttle = 0; });
 });
 
@@ -182,8 +192,12 @@ test('hitting a building rewinds the car and cuts the throttle', async () => {
 // waiting out REWIND_S to empty a real history.
 test('a crash with no rewind history falls back to the spawn point, not a nearest-sample jump', async () => {
   const spawn = await page.evaluate(() => {
-    const c = window.__sim.road.centers[window.__sim.road.startIdx];
-    return { x: c.x, z: c.z };
+    const { road } = window.__sim;
+    const c = road.centers[road.startIdx], n = road.normalAt(road.startIdx);
+    return {
+      x: c.x + n.x * road.startLateral,
+      z: c.z + n.z * road.startLateral,
+    };
   });
 
   // Teleport onto the target itself, via placeCarAt (never write V.x/V.z by

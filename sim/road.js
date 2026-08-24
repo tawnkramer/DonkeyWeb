@@ -187,6 +187,7 @@ export function buildRoad(spec) {
   }
   const normalAt = i => new THREE.Vector3(-tangents[i].z, 0, tangents[i].x);
   const startIdx = spec.startIdx ?? straightestIdx(tangents, SAMPLES);
+  const startLateral = spec.startLateral ?? width / 4;
 
   // Per-sample width taper: at tight corners the curvature radius can be
   // smaller than the road half-width, which would make the offset ribbon
@@ -264,5 +265,5 @@ export function buildRoad(spec) {
     group.add(light, dark);
   }
 
-  return { group, SAMPLES, width, startIdx, centers, tangents, normalAt };
+  return { group, SAMPLES, width, startIdx, startLateral, centers, tangents, normalAt };
 }

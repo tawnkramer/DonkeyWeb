@@ -442,7 +442,7 @@ export function buildRoadGraph(spec) {
   // isn't a meaningful single answer, and every edge here is straight by
   // construction anyway, so the author just picks one.
   let startIdx = 0;
-  let startLateral = 0;
+  let startLateral = width / 4;
   if (spec.startEdge) {
     const edge = edges.find(e => e.id === spec.startEdge.id);
     if (!edge) throw new Error(`startEdge "${spec.startEdge.id}" not found`);

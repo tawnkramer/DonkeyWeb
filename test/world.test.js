@@ -61,9 +61,15 @@ test('the car is placed on the new start line, stopped', async () => {
     const { road } = window.__sim;
     const { V } = window.__sim;
     const c = road.centers[road.startIdx];
-    return { dist: Math.hypot(V.x - c.x, V.z - c.z), speed: V.speed, cte: window.__sim.cte, off: window.__sim.offTrack };
+    const n = road.normalAt(road.startIdx);
+    return {
+      lateral: (V.x - c.x) * n.x + (V.z - c.z) * n.z,
+      expected: road.width / 4,
+      speed: V.speed, cte: window.__sim.cte, off: window.__sim.offTrack,
+    };
   });
-  assert.ok(state.dist < 0.01, `car is ${state.dist.toFixed(2)}m from the new start line`);
+  assert.ok(Math.abs(state.lateral - state.expected) < 0.01,
+    `car starts ${state.lateral.toFixed(2)}m laterally, expected right-lane centre at ${state.expected.toFixed(2)}m`);
   assert.equal(state.speed, 0, 'car still moving after a world switch');
   assert.equal(state.off, false, 'car reported off-track on a fresh start line');
 });

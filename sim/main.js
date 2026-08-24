@@ -343,8 +343,15 @@ function frame(now) {
   // or not -- going off-track there is the deliberately-induced starting
   // pose, not a mistake to gate out (see recovery.js).
   updateSession(dt, mode);
+  // Collision-reset street worlds treat the full roadway and junction pads
+  // as valid driving space. In particular, a graph world's `offTrack` is
+  // measured against its flattened compatibility centreline and can become
+  // true during a completely legitimate turn. Those worlds record until a
+  // real collision (car.js trims the crash approach); race-loop worlds keep
+  // the original centreline/off-track gate.
+  const withinRecordingBounds = collision.enabled || !offTrack;
   const isRecording = mode === 'drive'
-    ? (sessionOpen && !offTrack)
+    ? (sessionOpen && withinRecordingBounds)
     : (mode === 'recover' && recovery.active);
   recAcc += dt;
   if (recAcc >= REC_DT) {
