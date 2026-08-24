@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildTrafficLights } from './trafficlight.js';
+import { buildIntersectionSignals } from './intersectionSignals.js';
 
 // ---------- world features ----------
 // The `features: []` list in a world spec, turned into scene objects plus
@@ -11,6 +12,7 @@ import { buildTrafficLights } from './trafficlight.js';
 // skip, which stays off unless something says otherwise.
 const BUILDERS = {
   trafficLights: buildTrafficLights,
+  intersectionSignals: buildIntersectionSignals,
 };
 
 export function buildFeatures(specs, road) {

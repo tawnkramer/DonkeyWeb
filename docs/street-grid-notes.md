@@ -1,9 +1,11 @@
 # The street-grid world — working notes
 
-Status: **M1 landed** (commit `6a1957d` on branch `street-grid`, unpushed).
-The road graph, the layout, and all the road paint are done and tested.
-Traffic signals, stop signs and bot traffic are **not started**. These are
-notes-to-self so the thread can be picked up cold, in the same spirit as
+Status: **M2 in review** on branch `street-grid`, uncommitted.
+The road graph, layout, road paint, graph-aware street lights and coordinated
+signals at every junction are implemented. Bot traffic is **not started**.
+The earlier stop-sign milestone is superseded by signalising every junction.
+These are notes-to-self so the thread can be picked up cold, in
+the same spirit as
 `city-braking-notes.md`.
 
 ## Why this world exists
@@ -126,6 +128,14 @@ than the centre, since a building's centre can sit well clear while its
 corner is mid-lane. Buildings get 1.2m clearance; posts get 0, because a lamp
 post is meant to stand just off the kerb with its arm over the lane.
 
+Street lights reuse the low-poly pole/arm/lamp construction from `city`.
+Loop worlds retain their existing flattened-sample placement. Graph worlds
+place them independently on each edge, with a half-spacing margin at both
+ends, so the flattened compatibility array cannot put a post across an
+unrelated edge or directly in a junction pad. The street-grid enables them
+with the default scenery settings; their poles are included in the collision
+list.
+
 ## Testing
 
 - `test/roadgraph.test.js` — 20 tests, **plain `node:test`, no browser**.
@@ -152,22 +162,23 @@ before investigating. Don't run `training.test.js` (>3 min) without asking.
 
 ## What's next
 
-### M2 — signalised junction (node `A`)
+### M2 — coordinated signalised junctions — implemented
 
-New `sim/intersectionSignals.js` + a shared `sim/signalparts.js`, registered
-in `sim/features.js`'s `BUILDERS` table. `sim/trafficlight.js` stays untouched
-— it is tested and `city` depends on its loop-index placement — but its
-carefully tuned, empirically verified constants (`POLE_H`, `HEAD_Y`,
-`STOP_BACK_M` …) should be **moved into the shared module, not copy-pasted**.
+`sim/intersectionSignals.js` places one signal on every incoming edge of each
+degree-3/4 junction (40 approaches across four 4-ways and eight Ts).
+Placement is edge-local: the stop bar is measured back from the near side in
+metres, while the mast sits beyond the far kerb and its arm reaches over the
+incoming lane. This keeps the head visible through the intersection.
 
-Two things differ from the loop version:
+Each junction clock has named axis groups. North/south approaches share a
+green window while east/west stays red, followed by yellow and an all-red
+clearance interval; then east/west gets the corresponding window. Crossing
+traffic can never be green together. The signal geometry constants now live
+in `sim/signalparts.js`, shared by the loop and intersection builders.
 
-- Placement is per-approach at a node: last N samples of each incident edge,
-  converted to a global index via `edge.globalOffset`.
-- Phase becomes a shared per-node clock with **named groups** (N-S vs E-W)
-  rather than independent per-light offsets, so opposing approaches are
-  provably in sync and crossing ones provably opposite. That is a stronger
-  assertion than `city.test.js`'s current "at least two distinct phases".
+The feature is registered as `intersectionSignals` and street-grid enables it
+for all junctions. As with the loop traffic lights, signals are cosmetic and
+do not enforce stopping.
 
 Read the long comment at the top of `sim/trafficlight.js` before placing
 anything. The signal head geometry is driven by the 160×120 POV frame, not by
@@ -177,21 +188,12 @@ would make "stopped at red" and "stopped at green" identical pixels and
 silently unlearnable. Reuse the stop-bar distance; re-verify with
 `city.test.js`'s POV-frustum test pattern per approach.
 
-### M3 — stop signs (node `B`, and the eight Ts)
+### Superseded — stop signs
 
-New `sim/stopsign.js`: octagon on a post (an 8-sided `CylinderGeometry` suits
-the existing low-poly language) plus the same stop-bar convention. No `step`,
-no phase machine — `step` is already optional in the builder contract.
-
-**Decide and state plainly**: in v1 the sign is cosmetic/behavioural guidance
-for the human, matching `trafficlight.js`'s own stated philosophy that
-nothing enforces anything and the driver stopping is what teaches the model.
-Only bots get programmatic stop logic. Flag this rather than assume it — it
-decides whether any stop detection/scoring is expected later.
-
-The eight T nodes are typed `'stop'` on the assumption the *radial* approach
-stops and the ring runs through. Which approaches actually get a sign is M3's
-call.
+The original plan assigned stop signs to B and the eight Ts. The reviewed
+direction is now one coordinated traffic signal for every incoming approach
+at every junction, so those authored node types remain harmless metadata and
+no stop-sign feature is planned.
 
 ### M4 — bot traffic
 

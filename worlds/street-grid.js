@@ -134,5 +134,11 @@ export default {
     streetlights: {},
   },
 
-  features: [],
+  features: [
+    {
+      type: 'intersectionSignals',
+      allIntersections: true,
+      cycle: { green: 9, yellow: 2.5, allRed: 1 },
+    },
+  ],
 };

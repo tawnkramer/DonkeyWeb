@@ -29,6 +29,7 @@ const CROSSWALK_STRIPE_W = 0.42;
 const CROSSWALK_GAP = 0.55;
 const CROSSWALK_MARGIN = 0.3;      // clear of the road's own painted edge line
 const CROSSWALK_SETBACK = 0.25;    // bare asphalt between the pad and the stripes
+export const CROSSWALK_OUTER_M = CROSSWALK_SETBACK + CROSSWALK_STRIPE_LEN;
 
 // Bare road to leave at an edge's end, so the centerline stops short of the
 // junction instead of running into it. An edge is already trimmed to the

@@ -196,12 +196,38 @@ export function buildScenery(spec, road) {
     const armGeo = new THREE.BoxGeometry(1, 0.09, 0.09);
     const lampGeo = new THREE.BoxGeometry(0.5, 0.14, 0.26);
 
+    // A graph's flattened sample array is only a compatibility view: the
+    // sample after the end of one edge may be on the other side of the map.
+    // Place lights per edge so spacing and endpoint clearance never depend
+    // on authoring order (or put a post in a junction just because a global
+    // stride happened to land there).
+    const placements = road.graph
+      ? road.graph.edges.flatMap(edge => {
+          const step = Math.max(2, Math.round(cfg.spacing));
+          const first = Math.min(Math.floor(step / 2), Math.floor((edge.SAMPLES - 1) / 2));
+          const last = edge.SAMPLES - 1 - Math.floor(step / 2);
+          const out = [];
+          for (let local = first; local <= last; local += step) {
+            out.push({
+              i: edge.globalOffset + local,
+              tangent: edge.tangents[local],
+              normal: edge.normalAt(local),
+            });
+          }
+          return out;
+        })
+      : Array.from({ length: Math.ceil(SAMPLES / cfg.spacing) }, (_, k) => {
+          const i = Math.min(k * cfg.spacing, SAMPLES - 1);
+          return { i, tangent: tangents[i], normal: normalAt(i) };
+        });
+
     let side = 1;
-    for (let i = 0; i < SAMPLES; i += cfg.spacing) {
-      const n = normalAt(i);
+    for (const placement of placements) {
+      const { i, tangent, normal } = placement;
+      const n = normal;
       const off = width/2 + cfg.setback;
       const p = centers[i].clone().addScaledVector(n, side * off);
-      const yaw = Math.atan2(tangents[i].x, tangents[i].z);
+      const yaw = Math.atan2(tangent.x, tangent.z);
 
       // Zero clearance, unlike a building: a lamp post is MEANT to stand
       // just off the kerb with its arm reaching over the lane, so anything

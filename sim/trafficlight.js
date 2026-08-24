@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import { circleCollider } from './collide.js';
+import {
+  RED, YELLOW, GREEN, DARK, POLE_H, HEAD_Y, LAMP_R, LAMP_GAP, STOP_BACK_M,
+} from './signalparts.js';
 
 // ---------- traffic lights ----------
 // Lights sit ON the loop rather than at junctions, which is deliberate:
@@ -14,9 +17,6 @@ import { circleCollider } from './collide.js';
 // Nothing here enforces anything. Running a red is possible and is simply
 // bad training data -- the human driver stopping is what teaches the
 // model, exactly like staying on the road is.
-
-const RED = 0xff3b30, YELLOW = 0xffc400, GREEN = 0x34d158;
-const DARK = 0x241f1c;   // an unlit lamp, not black -- black reads as a hole
 
 const PHASES = ['green', 'yellow', 'red'];
 
@@ -44,12 +44,6 @@ const PHASES = ['green', 'yellow', 'red'];
 // Checked against the POV camera (1.05m, pitched down 0.20rad, 80deg
 // vertical FOV): from the bar, the head sits ~28deg off the camera axis
 // against a 40deg half-FOV.
-const POLE_H = 4.2;
-const HEAD_Y = 3.2;
-const LAMP_R = 0.26;
-const LAMP_GAP = 0.72;
-const STOP_BACK_M = 8;
-
 export function buildTrafficLights(spec, road) {
   const { centers, tangents, normalAt, width } = road;
   const cycle = { green: 9, yellow: 2.5, red: 7, ...(spec.cycle || {}) };

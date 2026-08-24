@@ -2,9 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupSimPage, waitFor } from './helpers.js';
 
-// M1: the road-graph engine itself -- no signals/stop-signs/bots yet (those
-// land in later milestones and extend this file section by section, same
-// as test/city.test.js). This section only re-confirms, against the real
+// Street-grid integration coverage, extended milestone by milestone (same
+// as test/city.test.js). This section re-confirms, against the real
 // running sim, what test/roadgraph.test.js already checked against the
 // builder in isolation: that street-grid is drivable and that the
 // collision-reset model (borrowed from the city loop) still holds once the
@@ -22,15 +21,31 @@ after(async () => {
   await ctx.teardown();
 });
 
-test('street-grid is a collision-reset world with a populated collider set and no signal/sign features yet', async () => {
+test('every street-grid junction has one coordinated signal per incoming approach', async () => {
   const state = await page.evaluate(() => ({
     enabled: window.__sim.collision.enabled,
     n: window.__sim.collision.list.length,
-    lights: window.__sim.featureStates('trafficLights'),
+    signals: window.__sim.featureStates('intersectionSignals'),
   }));
   assert.equal(state.enabled, true, 'street-grid is not in collision mode');
   assert.ok(state.n > 10, `expected a populated collider set, got ${state.n}`);
-  assert.deepEqual(state.lights, [], 'traffic lights exist before M2 added them');
+  // Four 4-ways plus eight T junctions: 4*4 + 8*3 incoming approaches.
+  assert.equal(state.signals.length, 40, 'missing an incoming junction approach signal');
+  const byNode = Map.groupBy(state.signals, s => s.node);
+  assert.equal(byNode.size, 12, 'every degree-3/4 junction should be signalised');
+  for (const [node, signals] of byNode) {
+    for (const axis of ['NS', 'EW']) {
+      const phases = signals.filter(s => s.axis === axis).map(s => s.phase);
+      if (phases.length > 1) {
+        assert.equal(new Set(phases).size, 1, `${node} ${axis} approaches are not synchronised`);
+      }
+    }
+    const greenAxes = new Set(signals.filter(s => s.phase === 'green').map(s => s.axis));
+    assert.ok(greenAxes.size <= 1, `${node} gives green to crossing traffic`);
+  }
+  for (const signal of state.signals) {
+    assert.notEqual(signal.stopIdx, undefined, `missing stop bar for ${signal.edge}`);
+  }
 });
 
 test('the flattened road matches SAMPLES and the car starts on it, stopped', async () => {
