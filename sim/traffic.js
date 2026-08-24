@@ -217,6 +217,7 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
     let visualChanged = false;
     for (const bot of bots) {
       let clearance = Infinity;
+      let redStopClearance = Infinity;
       // Anything physically ahead along this route, including the player.
       for (const other of bots) {
         if (other === bot || other.routeKey !== bot.routeKey) continue;
@@ -237,12 +238,18 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
         const signal = signals.find(s => s.node === crossing.node && s.axis === axis);
         if (signal && signal.phase !== 'green') {
           const stopDistance = signal.stopDistance ?? 0;
-          clearance = Math.min(clearance, d - stopDistance - STOP_LINE_BUFFER);
+          const signalClearance = d - stopDistance - STOP_LINE_BUFFER;
+          redStopClearance = Math.min(redStopClearance, signalClearance);
+          clearance = Math.min(clearance, signalClearance);
         }
       }
       const desired = clearance <= 0 ? 0 : Math.min(bot.targetSpeed, Math.sqrt(2 * 3.5 * clearance));
       const wasBraking = bot.braking;
-      bot.braking = desired < bot.speed - 1e-4;
+      // Brake lamps also stay lit while the signal is actively holding a
+      // stopped bot. They release immediately when green removes that hold,
+      // on the same tick acceleration begins.
+      const heldAtRed = redStopClearance < 0.35 && desired < 0.5;
+      bot.braking = desired < bot.speed - 1e-4 || heldAtRed;
       const accel = desired > bot.speed ? 2.2 : -4.5;
       bot.speed = Math.max(0, Math.min(desired, bot.speed + accel * dt));
       bot.s = wrap(bot.s + bot.speed * dt, bot.path.length);

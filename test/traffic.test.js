@@ -116,8 +116,9 @@ test('turn indicators blink on the routed turn side, front and rear, then clear'
 
 test('rear brake lights follow actual braking state', () => {
   const road = buildRoadGraph(streetGrid);
+  let phase = 'red';
   const context = { states: () => ['NS', 'EW'].map(axis => ({
-    node: 'C', axis, phase: 'red', stopDistance: 9,
+    node: 'C', axis, phase, stopDistance: 9,
   })) };
   const built = buildTraffic({ bots: [{ route: ['A', 'C', 'D', 'B'], start: 0.12 }] }, road, context);
   const brakeNames = [];
@@ -133,7 +134,13 @@ test('rear brake lights follow actual braking state', () => {
   const stopped = built.states()[0];
   assert.ok(sawBraking, 'brake lights never came on during deceleration');
   assert.equal(stopped.speed, 0);
-  assert.equal(stopped.braking, false, 'brake lights remained on after braking ended');
+  assert.equal(stopped.braking, true, 'brake lights went out while stopped at red');
+
+  phase = 'green';
+  built.fixedStep(1 / 50, null);
+  const departing = built.states()[0];
+  assert.ok(departing.speed > 0, 'bot did not begin accelerating on green');
+  assert.equal(departing.braking, false, 'brake lights remained on while accelerating');
 });
 
 test('a red signal stops a bot before its next crossing', () => {
