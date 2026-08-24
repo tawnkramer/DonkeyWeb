@@ -65,6 +65,27 @@ test('bot spawn hints inside junctions are moved clear of every pad', () => {
   }
 });
 
+test('bot heading turns continuously through a junction', () => {
+  const road = buildRoadGraph(streetGrid);
+  const built = buildTraffic({ bots: [{ route: ['A', 'C', 'D', 'B'], start: 0 }] }, road);
+  const mesh = built.group.children[0];
+  let previous = mesh.rotation.y;
+  let totalTurn = 0;
+  let largestStep = 0;
+  for (let i = 0; i < 800; i++) {
+    built.fixedStep(1 / 50, null);
+    let delta = mesh.rotation.y - previous;
+    while (delta > Math.PI) delta -= 2 * Math.PI;
+    while (delta < -Math.PI) delta += 2 * Math.PI;
+    totalTurn += Math.abs(delta);
+    largestStep = Math.max(largestStep, Math.abs(delta));
+    previous = mesh.rotation.y;
+  }
+  assert.ok(totalTurn > 1, 'bot never reached a corner during the test');
+  assert.ok(largestStep < 0.2,
+    `bot heading snapped ${largestStep.toFixed(2)} radians in one tick`);
+});
+
 test('a red signal stops a bot before its next crossing', () => {
   const road = buildRoadGraph(streetGrid);
   const STOP_DISTANCE = 9;

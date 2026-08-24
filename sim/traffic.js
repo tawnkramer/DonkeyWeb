@@ -74,7 +74,7 @@ function safeSpawnPosition(path, requested) {
   throw new Error('traffic route has no spawn position outside its junctions');
 }
 
-function samplePath(path, s, lateral = 0) {
+function samplePolyline(path, s) {
   s = wrap(s, path.length);
   let i = 0;
   while (i + 1 < path.distances.length && path.distances[i + 1] <= s) i++;
@@ -83,8 +83,42 @@ function samplePath(path, s, lateral = 0) {
   const start = path.distances[i];
   const span = j ? path.distances[j] - start : path.length - start;
   const t = span > 1e-9 ? (s - start) / span : 0;
-  const tangent = b.clone().sub(a).normalize();
-  const point = a.clone().lerp(b, t);
+  return { point: a.clone().lerp(b, t), tangent: b.clone().sub(a).normalize() };
+}
+
+function signedDistance(from, to, length) {
+  let d = wrap(to - from, length);
+  if (d > length / 2) d -= length;
+  return d;
+}
+
+function samplePath(path, s, lateral = 0) {
+  s = wrap(s, path.length);
+  let sampled = samplePolyline(path, s);
+
+  // The resolved route is intentionally a simple connected polyline. Round
+  // only the section inside each node pad: a quadratic Bezier is tangent to
+  // the incoming and outgoing streets at its ends, so both position and yaw
+  // remain continuous through a turn without changing route bookkeeping.
+  for (const crossing of path.crossings) {
+    const radius = Math.max(0, Math.min(4, crossing.pad / 2 - BOT_RADIUS));
+    const delta = signedDistance(crossing.s, s, path.length);
+    if (radius <= 0 || Math.abs(delta) >= radius) continue;
+    const incoming = samplePolyline(path, crossing.s - radius).point;
+    const outgoing = samplePolyline(path, crossing.s + radius).point;
+    const control = samplePolyline(path, crossing.s).point;
+    const t = (delta + radius) / (2 * radius);
+    const u = 1 - t;
+    const point = incoming.clone().multiplyScalar(u * u)
+      .addScaledVector(control, 2 * u * t)
+      .addScaledVector(outgoing, t * t);
+    const tangent = control.clone().sub(incoming).multiplyScalar(2 * u)
+      .add(outgoing.clone().sub(control).multiplyScalar(2 * t)).normalize();
+    sampled = { point, tangent };
+    break;
+  }
+
+  const { point, tangent } = sampled;
   // Same lateral convention as roadgraph/intersectionSignals: positive is
   // the right side in the direction of travel. Keeping the route itself on
   // the centreline preserves simple arc-distance bookkeeping; only the
