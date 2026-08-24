@@ -162,6 +162,35 @@ test('switching worlds while parked repaints immediately', async () => {
     'POV canvas is unchanged after a parked world switch -- the new world was never drawn');
 });
 
+// Regression: sim/scenery.js sets buildings back along each road sample's
+// normal, which silently assumed there is only ever ONE road to be set back
+// from. That held for a closed loop (its far side is half a map away) and
+// broke the moment a world had a road graph: street-grid's edges run tens
+// of metres apart with stub arms crossing perpendicular, so plots set back
+// from one edge landed squarely on another and walled the streets off.
+//
+// Asserted across every world, not just the graph one -- "nothing solid
+// stands on the roadway" is not a street-grid rule, it's the rule.
+test('no world puts a solid object on its own roadway', async () => {
+  const worlds = await page.evaluate(() => window.__sim.listWorlds());
+  for (const w of worlds) {
+    const blocked = await page.evaluate((id) => {
+      const s = window.__sim;
+      s.setWorld(id);
+      const half = s.road.width / 2;
+      for (let i = 0; i < s.road.SAMPLES; i++) {
+        const c = s.road.centers[i];
+        const hit = s.hitTest(s.collision.list, c.x, c.z, half);
+        if (hit) return { i, kind: hit.kind, x: hit.x, z: hit.z, cx: c.x, cz: c.z };
+      }
+      return null;
+    }, w.id);
+    assert.equal(blocked, null,
+      `${w.id}: a ${blocked?.kind} at (${blocked?.x?.toFixed(1)}, ${blocked?.z?.toFixed(1)}) ` +
+      `sits on the roadway at sample ${blocked?.i}`);
+  }
+});
+
 test('the chosen world survives a reload', async () => {
   const chosen = await page.evaluate(() => window.__sim.getWorldId());
   await page.reload({ waitUntil: 'load', timeout: 20000 });

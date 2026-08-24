@@ -242,7 +242,7 @@ export function step(dt) {
   if (input.throttle > 0) a += input.throttle * V.ACCEL;
   if (input.throttle < 0) a += input.throttle * (V.speed > 0.3 ? V.BRAKE : V.ACCEL * 0.55); // brake, then reverse
   a -= V.DRAG * V.speed + V.ROLL * Math.sign(V.speed);
-  if (offTrack) a -= 2.2 * V.speed * dt * 50 * 0.04 + 1.6; // grass drag
+  if (offTrack && road.dragOnOffTrack) a -= 2.2 * V.speed * dt * 50 * 0.04 + 1.6; // grass drag
   V.speed += a * dt;
   V.speed = Math.max(-V.TOP*0.35, Math.min(V.TOP, V.speed));
   if (Math.abs(input.throttle) < 0.02 && Math.abs(V.speed) < 0.25) V.speed = 0;
@@ -269,10 +269,14 @@ export function step(dt) {
   if (collision.enabled) {
     if (autoResetOnOffTrack && hitTest(collision.list, V.x, V.z)) {
       if (!pilot.active) tubTrimLastSeconds(REWIND_S, simTime);
-      // Nothing to rewind into within the first few seconds of a run;
-      // fall back to the centreline so a crash can't leave the car
-      // parked inside a wall.
-      if (!rewindCar()) resetCar();
+      // Nothing to rewind into within the first few seconds of a run; fall
+      // back to a defined place instead of leaving the car parked inside a
+      // wall. On a loop, the nearest centreline sample is always a sane
+      // place -- it's the same road you crashed off of. On a graph world
+      // road.centers is a flattened concatenation of unrelated edges (see
+      // roadgraph.js), so "nearest sample" can be a point across a branch
+      // never actually driven; go to the authored spawn instead.
+      if (!rewindCar()) { if (road.graph) resetCarToStart(); else resetCar(); }
       input.throttle = 0;
     }
     histPush();

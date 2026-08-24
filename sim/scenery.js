@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { boxCollider, circleCollider } from './collide.js';
+import { boxCollider, circleCollider, hitTest } from './collide.js';
 
 // ---------- scenery builder ----------
 // Cones on tight corners, low-poly trees off the road. Pure like
@@ -32,12 +32,60 @@ const DEFAULT_STREETLIGHTS = {
   pole: 0x3a3f45, lamp: 0xffe9b0,
 };
 
+// How much daylight to leave between the kerb and a building face. Posts
+// get 0 -- a streetlight is MEANT to stand just off the kerb with its arm
+// over the lane, so the rule for one is only "not actually on the asphalt".
+const BUILDING_CLEAR = 1.2;
+
 export function buildScenery(spec, road) {
   const { SAMPLES, width, centers, tangents, normalAt } = road;
   const group = new THREE.Group();
   // Only consulted by worlds that reset on collision; built regardless so
   // a world can switch its reset rule without touching its scenery.
   const colliders = [];
+
+  // Nothing may be built ON the roadway. On a loop that came for free: the
+  // only road is the one being set back from, and its far side is half a
+  // map away. On a branching graph it does not -- streets run only tens of
+  // metres apart and cross each other, so a plot set back from one edge
+  // routinely lands squarely on another. That turned the first street-grid
+  // build into a maze of buildings standing in the road.
+  //
+  // Rejection-tested against the real footprint, not a point: a building
+  // is 7-13m across, so its centre can sit a comfortable distance from a
+  // street while its corner is in the middle of one. Same idea as the
+  // trees' `clearance` check below, done properly.
+  //
+  // `width` is the road's nominal width; per-edge overrides on a graph
+  // world would need this to consult the edge, which nothing does yet.
+  const padColliders = (road.graph?.nodes ?? [])
+    .filter(n => n.pad > 0)
+    .map(n => boxCollider(n.pos[0], n.pos[1], n.pad / 2, n.pad / 2, 0));
+  const probe = [null];
+  function onRoadway(collider, clearance) {
+    // Each road sample as a disc of half a road-width (plus clearance),
+    // tested against the footprint itself -- hitTest's circle-vs-box is
+    // exactly this query, just with the roles read the other way round.
+    probe[0] = collider;
+    const r = width / 2 + clearance;
+    for (let i = 0; i < SAMPLES; i++) {
+      if (hitTest(probe, centers[i].x, centers[i].z, r)) return true;
+    }
+    // Intersection pads are wider than the streets that feed them, so a
+    // plot can clear every centreline sample and still sit on a corner of
+    // the junction itself. Box-vs-box has no test here, so the footprint
+    // stands in as its circumscribing disc -- deliberately conservative:
+    // it can reject a plot whose corner merely points at the pad, which
+    // costs a building and never leaves one in the road.
+    const circum = collider.kind === 'box'
+      ? Math.hypot(collider.halfX, collider.halfZ)
+      : collider.r;
+    for (const pad of padColliders) {
+      probe[0] = pad;
+      if (hitTest(probe, collider.x, collider.z, circum + clearance)) return true;
+    }
+    return false;
+  }
 
   if (spec.cones !== false) {
     const cfg = { ...DEFAULT_CONES, ...(spec.cones || {}) };
@@ -112,6 +160,12 @@ export function buildScenery(spec, road) {
         // `across` is depth away from the street.
         const yaw = Math.atan2(tangents[i].x, tangents[i].z);
 
+        // Half-extents in the box's own frame: across is its local X, the
+        // frontage runs along local Z. Built before the meshes so the plot
+        // can be rejected without having constructed anything.
+        const plot = boxCollider(p.x, p.z, across / 2, along / 2, yaw);
+        if (onRoadway(plot, BUILDING_CLEAR)) continue;
+
         const body = new THREE.Mesh(
           new THREE.BoxGeometry(across, h, along),
           mats[Math.floor(rng() * mats.length)],
@@ -126,9 +180,7 @@ export function buildScenery(spec, road) {
         cap.castShadow = true;
 
         group.add(body, cap);
-        // Half-extents in the box's own frame: across is its local X, the
-        // frontage runs along local Z. Same yaw as the mesh.
-        colliders.push(boxCollider(p.x, p.z, across / 2, along / 2, yaw));
+        colliders.push(plot);
       }
     }
   }
@@ -150,6 +202,14 @@ export function buildScenery(spec, road) {
       const off = width/2 + cfg.setback;
       const p = centers[i].clone().addScaledVector(n, side * off);
       const yaw = Math.atan2(tangents[i].x, tangents[i].z);
+
+      // Zero clearance, unlike a building: a lamp post is MEANT to stand
+      // just off the kerb with its arm reaching over the lane, so anything
+      // more than "not actually on the asphalt" would reject every post on
+      // its own street. What this does catch is a post that clears its own
+      // kerb and lands mid-lane on a street crossing behind it.
+      const base = circleCollider(p.x, p.z, 0.16);
+      if (onRoadway(base, 0)) { side *= -1; continue; }
 
       const post = new THREE.Group();
       post.position.set(p.x, 0, p.z);
@@ -176,7 +236,7 @@ export function buildScenery(spec, road) {
       lamp.position.set(side * reach, cfg.height - 0.12, 0);
       post.add(pole, arm, lamp);
       group.add(post);
-      colliders.push(circleCollider(p.x, p.z, 0.16));
+      colliders.push(base);
 
       side *= -1;   // alternate kerbs down the street
     }

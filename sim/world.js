@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { scene, applyEnvironment } from './scene.js';
 import { buildRoad } from './road.js';
+import { buildRoadGraph } from './roadgraph.js';
 import { buildScenery } from './scenery.js';
 import { buildFeatures } from './features.js';
 import { WORLDS, DEFAULT_WORLD_ID, findWorld } from '../worlds/index.js';
@@ -25,6 +26,19 @@ export const road = {
   // Defined here, not taken from the builder, so it always reads the live
   // tangents instead of closing over one particular world's array.
   normalAt: i => new THREE.Vector3(-road.tangents[i].z, 0, road.tangents[i].x),
+  // { nodes, edges } on a graph world (see sim/roadgraph.js), undefined on a
+  // loop world. car.js reads its mere presence to tell the two apart --
+  // notably, to know when road.centers is a flattened concatenation of
+  // unrelated edges rather than one continuous path.
+  graph: undefined,
+  // Whether car.js's off-track "grass drag" deceleration applies. True for
+  // every loop world, where straying from road.centers really does mean you
+  // left the intended line. Graph worlds set this false: there, the
+  // flattened centerline is a bookkeeping artifact (see roadgraph.js), and
+  // turning onto a cross-street or crossing an intersection pad would
+  // otherwise read as a large, bogus cross-track error and brake the car for
+  // doing exactly what the street layout invites.
+  dragOnOffTrack: true,
 };
 
 // How the active world decides the driver has failed, and what's solid.
@@ -89,7 +103,7 @@ function disposeGroup(group) {
 }
 
 function activate(spec) {
-  const built = buildRoad(spec);
+  const built = spec.graph ? buildRoadGraph(spec) : buildRoad(spec);
   const scenery = buildScenery(spec.scenery || {}, built);
   const feats = buildFeatures(spec.features || [], built);
 
@@ -115,6 +129,8 @@ function activate(spec) {
   road.startIdx = built.startIdx;
   road.centers = built.centers;
   road.tangents = built.tangents;
+  road.graph = built.graph;
+  road.dragOnOffTrack = spec.dragOnOffTrack ?? true;
 
   current = spec;
 }

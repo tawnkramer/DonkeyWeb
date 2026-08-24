@@ -10,13 +10,145 @@ import * as THREE from 'three';
 
 const DEFAULT_SAMPLES = 900;
 
-const DEFAULT_COLORS = {
+export const DEFAULT_COLORS = {
   asphalt: 0x3d4149,
   edge: 0xf3efe8,
   center: 0xffd23f,
   checkerLight: 0xf3efe8,
   checkerDark: 0x20242e,
 };
+
+// Per-sample width taper, factored out of buildRoad() so sim/roadgraph.js can
+// build the same corner-radius protection for an open graph edge. `closed`
+// picks how neighbour samples wrap: circularly for a loop, clamped at the two
+// ends for an edge (which has no "before the start" or "after the end").
+export function buildWidthScale(centers, tangents, SAMPLES, closed, maxOffset) {
+  const widthScale = new Array(SAMPLES);
+  for (let i = 0; i < SAMPLES; i++) {
+    const p = closed ? (i - 1 + SAMPLES) % SAMPLES : Math.max(0, i - 1);
+    const n2 = closed ? (i + 1) % SAMPLES : Math.min(SAMPLES - 1, i + 1);
+    if (p === n2) { widthScale[i] = 1; continue; }
+    const dTheta = tangents[p].angleTo(tangents[n2]);
+    const ds = centers[p].distanceTo(centers[n2]);
+    const radius = dTheta > 1e-6 ? ds / dTheta : Infinity;
+    widthScale[i] = Math.min(1, (radius * 0.85) / maxOffset);
+  }
+  return widthScale;
+}
+
+// A flat offset ribbon along a sampled path -- the asphalt, the white edges,
+// the sidewalk strips. `closed` controls whether the last vertex wraps back
+// to the first (a loop) or the strip just ends (an open graph edge); the
+// vertex/quad counts below are the only place that distinction shows up, the
+// per-sample math is identical either way.
+export function buildRibbon(centers, normalAt, widthScale, SAMPLES, closed, halfInner, halfOuter, y, color) {
+  const pos = [], idx = [];
+  const vertCount = closed ? SAMPLES + 1 : SAMPLES;
+  for (let i = 0; i < vertCount; i++) {
+    const j = i % SAMPLES, c = centers[j], n = normalAt(j), s = widthScale[j];
+    pos.push(c.x + n.x*halfOuter*s, y, c.z + n.z*halfOuter*s,
+             c.x + n.x*halfInner*s, y, c.z + n.z*halfInner*s);
+  }
+  const quadCount = closed ? SAMPLES : SAMPLES - 1;
+  for (let i = 0; i < quadCount; i++) {
+    const a = i*2, b = a+1, c2 = a+2, d = a+3;
+    idx.push(a,b,c2, b,d,c2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  // See buildRoad()'s ribbon() for why DoubleSide: the strip's winding faces
+  // down relative to every camera this sim uses.
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide}));
+  m.receiveShadow = true;
+  return m;
+}
+
+export const DASH_PITCH_M = 4.5;   // centre-to-centre along the road
+export const DASH_LEN_M = 1.6;
+const DASH_W = 0.22;
+
+// Dashed centerline, instanced flat planes laid flat and aimed along the
+// road (same "lay flat, then aim along the tangent" quaternion as the
+// checker strip below). Shared between the loop and graph edges.
+//
+// Spacing is metric, walked along real arc length, rather than "every Nth
+// sample" as it used to be. Sample spacing is not a fixed number of metres:
+// it depends on the world's loop length, and within one loop it varies with
+// how the spline parameterises its corners -- so a fixed sample stride gave
+// a different dash pitch on every world and a visibly uneven one inside any
+// single road.
+//
+// startClear/endClear are metres of road to leave bare at each end, and are
+// what keep dashes out of an intersection. A graph edge stops exactly on
+// the pad boundary, so a dash centred on its last sample used to hang half
+// its length into the junction and paint straight over the crosswalk; the
+// caller passes enough clearance to sit the first dash beyond both. The
+// clearances are measured to the dash's END, not its centre -- half a dash
+// length is added here, so callers state the gap they actually want to see.
+export function buildDashedCenterline(centers, tangents, SAMPLES, color, opts = {}) {
+  const {
+    closed = true,
+    pitch = DASH_PITCH_M,
+    length = DASH_LEN_M,
+    startClear = 0,
+    endClear = 0,
+  } = opts;
+
+  const segs = closed ? SAMPLES : SAMPLES - 1;
+  const arc = new Float64Array(segs + 1);
+  for (let i = 0; i < segs; i++) {
+    arc[i + 1] = arc[i] + centers[i].distanceTo(centers[(i + 1) % SAMPLES]);
+  }
+  const total = arc[segs];
+
+  const first = startClear + length / 2;
+  const last = total - endClear - length / 2;
+  // A short edge between two junctions can be all clearance and no room to
+  // paint. That's a legitimate layout, not an error -- draw nothing.
+  if (last < first) return null;
+
+  // A closed loop divides its pitch evenly into the lap instead of taking
+  // the requested pitch literally: walking a fixed stride around a loop
+  // leaves a ragged joint where the last dash meets the first, which is
+  // exactly the seam a driver stares at on the start/finish straight.
+  let count, step, base;
+  if (closed) {
+    count = Math.max(1, Math.round(total / pitch));
+    step = total / count;
+    base = first;
+  } else {
+    count = Math.floor((last - first) / pitch) + 1;
+    step = pitch;
+    base = first;
+  }
+
+  const dashes = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(DASH_W, length),
+    new THREE.MeshBasicMaterial({ color }),
+    count,
+  );
+  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3();
+  const ALONG = new THREE.Vector3(0, 0, 1), ONE = new THREE.Vector3(1, 1, 1);
+  const FLAT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+
+  let seg = 0, k = 0;
+  for (let n = 0; n < count; n++) {
+    const d = base + n * step;
+    while (seg < segs - 1 && arc[seg + 1] < d) seg++;
+    // Interpolated between samples rather than snapped to the nearest one:
+    // at a 4.5m pitch on ~0.5m samples, snapping would quantise the gaps
+    // into a visible stutter.
+    const span = arc[seg + 1] - arc[seg];
+    p.lerpVectors(centers[seg], centers[(seg + 1) % SAMPLES],
+                  span > 1e-9 ? (d - arc[seg]) / span : 0);
+    q.setFromUnitVectors(ALONG, tangents[seg]).multiply(FLAT);
+    M.compose(new THREE.Vector3(p.x, 0.05, p.z), q, ONE);
+    dashes.setMatrixAt(k++, M);
+  }
+  dashes.count = k;
+  return dashes;
+}
 
 // Picks the straightest run on the loop for the start/finish line. Worlds
 // may override with an explicit startIdx, but nothing about a spline's
@@ -68,41 +200,17 @@ export function buildRoad(spec) {
   // survives.
   const sidewalk = spec.sidewalk ? { width: 2.4, height: 0.14, color: 0x8d8f8a, ...spec.sidewalk } : null;
   const MAX_OFFSET = width / 2 + 0.05 + (sidewalk ? sidewalk.width : 0);
-  const widthScale = new Array(SAMPLES);
-  for (let i = 0; i < SAMPLES; i++) {
-    const p = (i - 1 + SAMPLES) % SAMPLES, n2 = (i + 1) % SAMPLES;
-    const dTheta = tangents[p].angleTo(tangents[n2]);
-    const ds = centers[p].distanceTo(centers[n2]);
-    const radius = dTheta > 1e-6 ? ds / dTheta : Infinity;
-    widthScale[i] = Math.min(1, (radius * 0.85) / MAX_OFFSET);
-  }
+  const widthScale = buildWidthScale(centers, tangents, SAMPLES, true, MAX_OFFSET);
 
   const group = new THREE.Group();
 
-  // road ribbon
-  function ribbon(halfInner, halfOuter, y, color) {
-    const pos = [], idx = [];
-    for (let i = 0; i <= SAMPLES; i++) {
-      const j = i % SAMPLES, c = centers[j], n = normalAt(j), s = widthScale[j];
-      pos.push(c.x + n.x*halfOuter*s, y, c.z + n.z*halfOuter*s,
-               c.x + n.x*halfInner*s, y, c.z + n.z*halfInner*s);
-    }
-    for (let i = 0; i < SAMPLES; i++) {
-      const a = i*2, b = a+1, c2 = a+2, d = a+3;
-      idx.push(a,b,c2, b,d,c2);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx); g.computeVertexNormals();
-    // The strip's triangle winding faces downward everywhere (a quirk of how
-    // the outer/inner offsets are ordered relative to the loop's traversal
-    // direction), which put it on the back face relative to every camera we
-    // use (all of them sit above the road). DoubleSide keeps it visible
-    // regardless of winding.
-    const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({color, side: THREE.DoubleSide}));
-    m.receiveShadow = true;
-    return m;
-  }
+  // road ribbon -- the strip's triangle winding faces downward everywhere (a
+  // quirk of how the outer/inner offsets are ordered relative to the loop's
+  // traversal direction), which put it on the back face relative to every
+  // camera we use (all of them sit above the road); buildRibbon's DoubleSide
+  // material keeps it visible regardless of winding.
+  const ribbon = (halfInner, halfOuter, y, color) =>
+    buildRibbon(centers, normalAt, widthScale, SAMPLES, true, halfInner, halfOuter, y, color);
   group.add(ribbon(-width/2, width/2, 0.02, colors.asphalt));            // asphalt
   group.add(ribbon( width/2-0.28,  width/2+0.05, 0.045, colors.edge));   // white edges
   group.add(ribbon(-width/2-0.05, -width/2+0.28, 0.045, colors.edge));
@@ -117,25 +225,10 @@ export function buildRoad(spec) {
     group.add(ribbon(-outer, -inner, sidewalk.height, sidewalk.color));
   }
 
-  // dashed center line
-  {
-    const dashGeo = new THREE.PlaneGeometry(0.22, 1.6);
-    const dashMat = new THREE.MeshBasicMaterial({color: colors.center});
-    const STEP = 8;
-    const dashes = new THREE.InstancedMesh(dashGeo, dashMat, Math.floor(SAMPLES/STEP/2)+1);
-    const M = new THREE.Matrix4(), q = new THREE.Quaternion();
-    let k = 0;
-    for (let i = 0; i < SAMPLES; i += STEP*2) {
-      const c = centers[i], tan = tangents[i];
-      q.setFromUnitVectors(new THREE.Vector3(0,0,1), tan);
-      M.compose(new THREE.Vector3(c.x, 0.05, c.z),
-                q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), -Math.PI/2)),
-                new THREE.Vector3(1,1,1));
-      dashes.setMatrixAt(k++, M);
-    }
-    dashes.count = k;
-    group.add(dashes);
-  }
+  // Closed: a loop has no ends to keep clear of, and the pitch divides the
+  // lap evenly so the dashes meet cleanly where it closes.
+  const dashes = buildDashedCenterline(centers, tangents, SAMPLES, colors.center);
+  if (dashes) group.add(dashes);
 
   // start / finish checker strip, built from small flat-colored cells (like
   // the dashes above) instead of vertex-colored quads: vertex colors are
