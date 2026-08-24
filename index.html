@@ -757,10 +757,18 @@
         <div class="menuSubmenu" data-submenu-panel="augment">
           <button class="menuModeBtn" data-mode="recover" role="menuitem">recovery generation</button>
         </div>
+        <!-- The backprop visualizer is DISABLED: this is the only way into
+             it, so removing these three lines takes it off the site without
+             touching anything it is built from. Everything else is still
+             here and still tested (sim/learnui.js, train/backprop.js,
+             #screenLearn below, test/backprop.test.js) -- see
+             docs/backprop-disabled.md. To restore, put this back:
+
         <button class="menuSection" type="button" data-submenu="learn" aria-expanded="false">learn</button>
         <div class="menuSubmenu" data-submenu-panel="learn">
           <button class="menuModeBtn" data-mode="learn" role="menuitem">backprop visualizer</button>
         </div>
+        -->
         <button class="menuSection" type="button" data-submenu="model" aria-expanded="false">model</button>
         <div class="menuSubmenu" data-submenu-panel="model">
           <button id="loadModelBtn" role="menuitem">load model</button>

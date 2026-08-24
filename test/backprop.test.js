@@ -48,19 +48,38 @@ const advance = (n) => page.evaluate(async (count) => {
 
 const lossText = () => page.evaluate(() => document.getElementById('bpLoss').textContent);
 
-// The panel lives on its own screen, reached only from the hamburger -- there
-// is no navbar button for it. If the menu wiring breaks there is no other way
-// in, so the route itself is worth a test rather than just the destination.
-test('the hamburger reaches the backprop visualizer', async () => {
+// The visualizer is DISABLED (see docs/backprop-disabled.md). The hamburger
+// entry was its only way in, so removing that entry is the whole switch --
+// and this test is the switch's position, asserted rather than assumed. It
+// fails if the menu item comes back, which is the right moment to be
+// reminded that the rest of this file, and the note in docs/, describe a
+// feature users cannot currently reach.
+//
+// Everything below still runs against the screen directly, so the coverage
+// stays alive for whoever picks the fix up.
+test('the visualizer is unreachable from the UI while disabled', async () => {
   await page.evaluate(() => __sim.setMode('drive'));
   await page.click('#modelMenuBtn');
-  await page.click('[data-submenu="learn"]');
-  await page.click('.menuModeBtn[data-mode="learn"]');
 
+  const menu = await page.evaluate(() => ({
+    section: !!document.querySelector('[data-submenu="learn"]'),
+    item: !!document.querySelector('.menuModeBtn[data-mode="learn"]'),
+    // The screen itself is untouched -- disabling is a routing change, not a
+    // teardown, so re-enabling stays a three-line edit.
+    screenExists: !!document.getElementById('screenLearn'),
+  }));
+  assert.equal(menu.section, false, 'the learn menu section should be gone while disabled');
+  assert.equal(menu.item, false, 'the backprop menu item should be gone while disabled');
+  assert.equal(menu.screenExists, true, 'the screen should still exist, just be unrouted');
+  await page.evaluate(() => { document.getElementById('modelMenu').classList.remove('open'); });
+});
+
+// Reached directly, the way the tests below and a re-enabled menu both do.
+test('the screen still works when opened directly', async () => {
+  await page.evaluate(() => __sim.setMode('learn'));
   const state = await page.evaluate(() => ({
     mode: document.body.dataset.mode,
     shown: getComputedStyle(document.getElementById('screenLearn')).display,
-    menuClosed: !document.getElementById('modelMenu').classList.contains('open'),
     // With nothing recorded there is no frame to step, and the page has to
     // say so rather than showing an empty stage.
     empty: !document.getElementById('learnEmpty').hidden,
@@ -70,10 +89,9 @@ test('the hamburger reaches the backprop visualizer', async () => {
   }));
   assert.equal(state.mode, 'learn');
   assert.equal(state.shown, 'block', 'the Learn screen should be visible');
-  assert.equal(state.menuClosed, true, 'the menu should close behind the choice');
   assert.equal(state.empty, true, 'expected the "drive a lap first" message');
   assert.equal(state.panelHidden, true, 'the stage should stay hidden with no frame');
-  assert.equal(state.onTrainScreen, false, 'the panel should no longer be on the Train screen');
+  assert.equal(state.onTrainScreen, false, 'the panel should not be on the Train screen');
 });
 
 // Regression: the screen retries until it has a PICTURE, not merely until a
