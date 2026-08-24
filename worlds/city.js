@@ -12,7 +12,7 @@
 // existing single-frame model can learn it.
 export default {
   id: 'city',
-  name: 'city',
+  name: 'city-loop',
   blurb: 'street loop, signals, overcast',
 
   // A rounded block loop: long straights so signals are visible from a
