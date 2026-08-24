@@ -1,6 +1,6 @@
 # The street-grid world — working notes
 
-Status: **M2 in review** on branch `street-grid`, uncommitted.
+Status: **M2 complete** (commit `af13f6e` on branch `street-grid`).
 The road graph, layout, road paint, graph-aware street lights and coordinated
 signals at every junction are implemented. Bot traffic is **not started**.
 The earlier stop-sign milestone is superseded by signalising every junction.
@@ -13,8 +13,8 @@ the same spirit as
 `worlds/city.js` is a single closed spline, and its header says why it has to
 be: `car.js` and `recovery.js` index the road circularly, so branching needed
 a road-graph refactor first. This world is that refactor plus a layout that
-uses it — a real street network with junctions, so the sim can eventually
-teach signals, stop signs and interaction with other traffic.
+uses it — a real street network with junctions, so the sim can teach signals
+and eventually interaction with other traffic.
 
 Three scope decisions were made up front and still hold:
 
@@ -60,17 +60,17 @@ world. Two consequences already handled, both in `car.js`:
 
 ```
 P---T---T---P     P  ring corner (90deg bend, degree 2)
-|   |   |   |     T  T intersection (ring x radial, degree 3)
-T---A---C---T     A  signalised 4-way    B  stop-sign 4-way
-|   |   |   |     C,D  uncontrolled 4-ways
+|   |   |   |     T  signalised T intersection (degree 3)
+T---A---C---T     A-D  signalised 4-ways
+|   |   |   |
 T---B---D---T
 |   |   |   |     16 nodes, 24 edges, nothing dead-ends
 P---T---T---P
 ```
 
-Node `type` (`'signal'`, `'stop'`, `'plain'`) is **already authored and
-currently unread** — it is what M2/M3 should key off, and it is carried now
-so the layout does not need re-authoring.
+Node `type` (`'signal'`, `'stop'`, `'plain'`) is retained as authored
+metadata. M2 deliberately signals every degree-3/4 node, superseding the
+earlier mixed signal/stop-control plan.
 
 Edge ids are derived from endpoints (`T_n_w>A`), so they stay readable in an
 error and cannot drift out of sync with the nodes.
@@ -160,7 +160,7 @@ Watch for: `scripts/test.sh` has `set -e`, so one red file hides every file
 after it alphabetically. And `test/stoprec.test.js` is a known flake — re-run
 before investigating. Don't run `training.test.js` (>3 min) without asking.
 
-## What's next
+## Completed milestone
 
 ### M2 — coordinated signalised junctions — implemented
 
@@ -195,7 +195,9 @@ direction is now one coordinated traffic signal for every incoming approach
 at every junction, so those authored node types remain harmless metadata and
 no stop-sign feature is planned.
 
-### M4 — bot traffic
+## What's next
+
+### M3 — bot traffic
 
 New `sim/traffic.js`. Two structural decisions matter more than they look:
 
@@ -218,7 +220,7 @@ fields fresh every call, so `collide.js` needs no changes. Budget is fine:
 currently 62 colliders and 0.003% of a 50 Hz tick, brute force, no spatial
 index needed.
 
-## Open questions to confirm before building M4
+## Open questions to confirm before building M3
 
 - Do bots brake for the **player** as well as each other? (Decision 2's
   wording implies yes.)
