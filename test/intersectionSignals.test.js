@@ -96,3 +96,29 @@ test('junction phases coordinate parallel approaches without crossing greens', (
   built.step(9.1);
   assertSafe('EW yellow');
 });
+
+test('an entire signal assembly fades inside 10m while its stop bar stays opaque', () => {
+  const { built } = fixture();
+  const assembly = built.group.children[0];
+  const light = assembly.children[0];
+  const bar = assembly.children[1];
+  const opacities = object => {
+    const values = [];
+    object.traverse(o => {
+      if (!o.material) return;
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) values.push(m.opacity);
+    });
+    return values;
+  };
+
+  built.step(0, { x: light.position.x + 10, z: light.position.z });
+  assert.ok(opacities(light).every(v => Math.abs(v - 1) < 1e-6));
+
+  built.step(0, { x: light.position.x + 5, z: light.position.z });
+  assert.ok(opacities(light).every(v => Math.abs(v - 2 / 7) < 1e-6),
+    'pole, arm, housing, and lamps should fade together');
+  assert.ok(opacities(bar).every(v => v === 1), 'stop bar should not fade with the hardware');
+
+  built.step(0, { x: light.position.x + 3, z: light.position.z });
+  assert.ok(opacities(light).every(v => v === 0));
+});

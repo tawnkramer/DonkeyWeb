@@ -286,6 +286,11 @@ function frame(now) {
                prevHeading + (V.heading - prevHeading) * rAlpha,
                dt, poseJumped);
 
+  // Proximity fading is based on the camera used for the displayed view,
+  // not the forward POV/training camera. Update it only after chase-camera
+  // damping has produced this frame's actual view position.
+  if (stepWorld(0, chaseCam.position)) wakeRender();
+
   // Stationary means the car's own state stopped changing this tick;
   // autopilot and recovery generation always count as active regardless
   // of current speed, since both need a continuous, fresh camera feed to

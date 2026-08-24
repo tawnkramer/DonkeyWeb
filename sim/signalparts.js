@@ -15,6 +15,35 @@ export const LAMP_R = 0.26;
 export const LAMP_GAP = 0.72;
 export const STOP_BACK_M = 8;
 export const STOP_BAR_DEPTH = 0.6;
+export const SIGNAL_FADE_M = 10;
+export const SIGNAL_INVISIBLE_M = 3;
+
+// Returns a cheap per-frame opacity updater for one complete mast/head/arm
+// assembly. The painted stop bar is deliberately not part of `light`: it is
+// road guidance and should remain visible after the overhead hardware fades.
+export function makeSignalFader(light) {
+  const materials = new Set();
+  light.traverse(object => {
+    if (!object.material) return;
+    for (const material of (Array.isArray(object.material) ? object.material : [object.material])) {
+      material.transparent = true;
+      materials.add(material);
+    }
+  });
+  let opacity = 1;
+  return camera => {
+    // A phase-only feature step has no view position. Leave the last fade
+    // intact; main.js supplies the displayed camera after placing it.
+    if (!camera) return false;
+    const distance = Math.hypot(light.position.x - camera.x, light.position.z - camera.z);
+    const next = Math.max(0, Math.min(1,
+      (distance - SIGNAL_INVISIBLE_M) / (SIGNAL_FADE_M - SIGNAL_INVISIBLE_M)));
+    if (Math.abs(next - opacity) < 1e-4) return false;
+    opacity = next;
+    for (const material of materials) material.opacity = opacity;
+    return true;
+  };
+}
 
 // Build one signal mast and its stop bar. `tangent` is the direction of the
 // approaching car; `normal` is the road normal for that direction. The
@@ -87,6 +116,7 @@ export function buildSignalParts({ center, tangent, normal, width, stopCenter, s
 
   return {
     group,
+    light,
     lampMats,
     collider: circleCollider(light.position.x, light.position.z, 0.18),
   };

@@ -77,8 +77,8 @@ export function getWorldId() { return current ? current.id : null; }
 // a traffic light holds one colour for seconds at a time, so waking on the
 // phase flip alone keeps the idle optimization intact instead of forcing a
 // permanent full-rate render on any world that has a light in it.
-export function stepWorld(dt) {
-  return features ? features.step(dt) : false;
+export function stepWorld(dt, camera) {
+  return features ? features.step(dt, camera) : false;
 }
 
 // Moving, collidable features advance on the same fixed clock as car.js.

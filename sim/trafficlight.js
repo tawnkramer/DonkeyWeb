@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { circleCollider } from './collide.js';
 import {
   RED, YELLOW, GREEN, DARK, POLE_H, HEAD_Y, LAMP_R, LAMP_GAP, STOP_BACK_M,
+  makeSignalFader,
 } from './signalparts.js';
 
 // ---------- traffic lights ----------
@@ -52,8 +53,6 @@ export function buildTrafficLights(spec, road) {
   const period = cycle.green + cycle.yellow + cycle.red;
 
   const group = new THREE.Group();
-  const poleMat = new THREE.MeshLambertMaterial({ color: 0x30343a });
-  const housingMat = new THREE.MeshLambertMaterial({ color: 0x1b1e22 });
   const poleGeo = new THREE.CylinderGeometry(0.11, 0.13, POLE_H, 8);
   const armGeo = new THREE.BoxGeometry(0.1, 0.1, 1);      // scaled per light
   const housingGeo = new THREE.BoxGeometry(0.8, LAMP_GAP * 3 + 0.2, 0.5);
@@ -72,6 +71,10 @@ export function buildTrafficLights(spec, road) {
   const colliders = [];
 
   at.forEach((idx, k) => {
+    // Private per assembly because camera-proximity fading changes opacity.
+    // Sharing these would make approaching one signal fade every signal.
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x30343a });
+    const housingMat = new THREE.MeshLambertMaterial({ color: 0x1b1e22 });
     const i = ((idx % centers.length) + centers.length) % centers.length;
     const c = centers[i], t = tangents[i], n = normalAt(i);
     // Right-hand side of the road, arm reaching back over the lane the car
@@ -143,6 +146,7 @@ export function buildTrafficLights(spec, road) {
       mats: lampMats,
       t: ((phaseOffsets[k] ?? 0) % period + period) % period,
       phase: null,
+      fade: makeSignalFader(light),
     });
   });
 
@@ -162,9 +166,10 @@ export function buildTrafficLights(spec, road) {
   // Returns whether anything visually changed, so main.js only has to wake
   // the renderer on an actual phase flip rather than every frame -- lights
   // are static for seconds at a time and the idle skip is worth keeping.
-  function step(dt) {
+  function step(dt, camera) {
     let changed = false;
     for (const light of lights) {
+      if (light.fade(camera)) changed = true;
       light.t = (light.t + dt) % period;
       const next = phaseAt(light.t);
       if (next !== light.phase) {

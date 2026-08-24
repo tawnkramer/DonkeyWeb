@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
   STOP_BAR_DEPTH, buildSignalParts, paintSignal,
+  makeSignalFader,
 } from './signalparts.js';
 import { CROSSWALK_OUTER_M } from './roadgraph.js';
 
@@ -93,6 +94,7 @@ export function buildIntersectionSignals(spec, road) {
         // drift apart.
         stopDistance: stopCenter.distanceTo(new THREE.Vector3(node.pos[0], 0, node.pos[1])),
         mats: built.lampMats,
+        fade: makeSignalFader(built.light),
         phase: null,
       });
     }
@@ -105,10 +107,11 @@ export function buildIntersectionSignals(spec, road) {
   }
 
   let time = 0;
-  function step(dt) {
+  function step(dt, camera) {
     time = (time + dt) % period;
     let changed = false;
     for (const signal of signals) {
+      if (signal.fade(camera)) changed = true;
       const window = signal.axis === 'NS' ? time : (time + halfCycle) % period;
       const next = window < halfCycle ? activePhase(window) : 'red';
       if (next === signal.phase) continue;

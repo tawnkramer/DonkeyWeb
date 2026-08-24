@@ -43,11 +43,11 @@ export function buildFeatures(specs, road) {
   return {
     group,
     colliders,
-    step(dt) {
+    step(dt, ...args) {
       // Not `some()`: every feature must be stepped, and some() stops at
       // the first truthy result.
       let changed = false;
-      for (const s of steps) if (s(dt)) changed = true;
+      for (const s of steps) if (s(dt, ...args)) changed = true;
       return changed;
     },
     fixedStep(dt, player) {
