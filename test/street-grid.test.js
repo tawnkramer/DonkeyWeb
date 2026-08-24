@@ -45,7 +45,24 @@ test('every street-grid junction has one coordinated signal per incoming approac
   }
   for (const signal of state.signals) {
     assert.notEqual(signal.stopIdx, undefined, `missing stop bar for ${signal.edge}`);
+    assert.ok(signal.stopDistance > 0, `missing stop-bar distance for ${signal.edge}`);
   }
+});
+
+test('bot traffic has persistent colliders, moves, and recovery is unavailable', async () => {
+  const before = await page.evaluate(() => ({
+    bots: window.__sim.featureStates('traffic'),
+    colliders: window.__sim.collision.list.filter(c => c.r === 0.72).length,
+    recoverDisabled: document.querySelector('[data-mode="recover"]').disabled,
+  }));
+  assert.equal(before.bots.length, 8);
+  assert.equal(before.colliders, 8);
+  assert.equal(before.recoverDisabled, true);
+  const moved = await waitFor(page, (initial) => {
+    const bots = window.__sim.featureStates('traffic');
+    return bots.some((b, i) => Math.hypot(b.x - initial[i].x, b.z - initial[i].z) > 0.3) ? bots : null;
+  }, { args: [before.bots], timeout: 4000, message: 'bot traffic did not advance in the fixed-step loop' });
+  assert.equal(moved.length, before.bots.length);
 });
 
 test('the flattened road matches SAMPLES and the car starts on it, stopped', async () => {
@@ -55,11 +72,19 @@ test('the flattened road matches SAMPLES and the car starts on it, stopped', asy
     return {
       centerCount: road.centers.length, samples: road.SAMPLES,
       dist: Math.hypot(V.x - c.x, V.z - c.z), speed: V.speed,
+      lateral: (V.x - c.x) * road.normalAt(road.startIdx).x +
+        (V.z - c.z) * road.normalAt(road.startIdx).z,
+      nodeClearances: road.graph.nodes.map(n => ({
+        id: n.id, distance: Math.hypot(V.x - n.pos[0], V.z - n.pos[1]), pad: n.pad,
+      })),
       dragOnOffTrack: road.dragOnOffTrack,
     };
   });
   assert.equal(state.centerCount, state.samples);
-  assert.ok(state.dist < 0.01, `car is ${state.dist.toFixed(2)}m from the start sample`);
+  assert.ok(Math.abs(state.lateral - 1.75) < 0.01,
+    `player spawn offset is ${state.lateral.toFixed(2)}m, expected the right lane centre`);
+  assert.ok(state.nodeClearances.every(n => n.distance > n.pad / 2),
+    'player spawned inside a junction pad');
   assert.equal(state.speed, 0);
   assert.equal(state.dragOnOffTrack, false, 'grass-drag should be disabled on a graph world');
 });

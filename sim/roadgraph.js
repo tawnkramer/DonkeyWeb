@@ -442,11 +442,13 @@ export function buildRoadGraph(spec) {
   // isn't a meaningful single answer, and every edge here is straight by
   // construction anyway, so the author just picks one.
   let startIdx = 0;
+  let startLateral = 0;
   if (spec.startEdge) {
     const edge = edges.find(e => e.id === spec.startEdge.id);
     if (!edge) throw new Error(`startEdge "${spec.startEdge.id}" not found`);
     const t = spec.startEdge.t ?? 0.5;
     startIdx = edge.globalOffset + Math.round(t * (edge.SAMPLES - 1));
+    startLateral = spec.startEdge.laneOffset ?? 0;
   }
 
   return {
@@ -460,7 +462,7 @@ export function buildRoadGraph(spec) {
     // that's approximate here and is not used to gate resets on this world
     // -- see the dragOnOffTrack world-spec flag in sim/world.js/car.js).
     // It is NOT safe to assume index i+1 continues from index i.
-    SAMPLES, width, startIdx, centers: allCenters, tangents: allTangents, normalAt,
+    SAMPLES, width, startIdx, startLateral, centers: allCenters, tangents: allTangents, normalAt,
     graph: { nodes: [...nodeById.values()], edges },
   };
 }

@@ -87,6 +87,11 @@ export function buildIntersectionSignals(spec, road) {
         edge: edge.id,
         stopIdx: edge.globalOffset + stopLocal,
         axis: Math.abs(travel.x) > Math.abs(travel.z) ? 'EW' : 'NS',
+        // Distance from the junction centre back along this approach to the
+        // painted stop-bar centre. Traffic consumes this instead of guessing
+        // from the pad/crosswalk constants, so geometry and enforcement cannot
+        // drift apart.
+        stopDistance: stopCenter.distanceTo(new THREE.Vector3(node.pos[0], 0, node.pos[1])),
         mats: built.lampMats,
         phase: null,
       });
@@ -119,7 +124,7 @@ export function buildIntersectionSignals(spec, road) {
     group,
     colliders,
     step,
-    states: () => signals.map(({ node, edge, stopIdx, axis, phase }) =>
-      ({ node, edge, stopIdx, axis, phase })),
+    states: () => signals.map(({ node, edge, stopIdx, stopDistance, axis, phase }) =>
+      ({ node, edge, stopIdx, stopDistance, axis, phase })),
   };
 }

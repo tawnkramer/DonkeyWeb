@@ -99,7 +99,7 @@ export default {
   },
   // Spawn on the northern radial heading into the block, far enough back
   // that the signalised junction at A is ahead and in frame.
-  startEdge: { id: 'T_n_w>A', t: 0.3 },
+  startEdge: { id: 'T_n_w>A', t: 0.3, laneOffset: ROAD_W / 4 },
 
   // Graph worlds don't have a single intended line -- see sim/world.js's
   // road.dragOnOffTrack for why the loop worlds' off-track deceleration
@@ -139,6 +139,20 @@ export default {
       type: 'intersectionSignals',
       allIntersections: true,
       cycle: { green: 9, yellow: 2.5, allRed: 1 },
+    },
+    {
+      type: 'traffic',
+      speed: 5.5,
+      bots: [
+        { id: 'ring-1', route: ['P_nw','T_n_w','T_n_e','P_ne','T_e_n','T_e_s','P_se','T_s_e','T_s_w','P_sw','T_w_s','T_w_n'], start: 0.03, color: 0xd85b45 },
+        { id: 'ring-2', route: ['P_ne','T_n_e','T_n_w','P_nw','T_w_n','T_w_s','P_sw','T_s_w','T_s_e','P_se','T_e_s','T_e_n'], start: 0.48, color: 0x46a36f },
+        { id: 'block-1', route: ['A','C','D','B'], start: 0.12, color: 0xd3a936 },
+        { id: 'block-2', route: ['A','B','D','C'], start: 0.62, color: 0x8d65bd },
+        { id: 'block-3', route: ['A','C','D','B'], start: 0.45, color: 0x4b86c6 },
+        { id: 'block-4', route: ['A','B','D','C'], start: 0.95, color: 0xd9779f },
+        { id: 'block-5', route: ['A','C','D','B'], start: 0.78, color: 0x63a64d },
+        { id: 'block-6', route: ['A','B','D','C'], start: 0.29, color: 0xd47c35 },
+      ],
     },
   ],
 };

@@ -89,9 +89,11 @@ function updateNearest() {
 
 // Snaps to the given sample, aligned with the road. Shared by resetCar()
 // (nearest sample) and resetCarToStart() (the start/finish line).
-function placeAtSample(idx) {
+function placeAtSample(idx, lateral = 0) {
   const c = road.centers[idx], t = road.tangents[idx];
-  V.x = c.x; V.z = c.z;
+  const n = road.normalAt(idx);
+  V.x = c.x + n.x * lateral;
+  V.z = c.z + n.z * lateral;
   V.heading = Math.atan2(t.x, t.z);
   V.speed = 0; V.steer = 0;
   nearestIdx = idx;
@@ -142,7 +144,7 @@ export function resetCar() {
 // so it goes to the start/finish line rather than to whatever sample of
 // the new road happens to be nearest its stale position.
 export function resetCarToStart() {
-  placeAtSample(road.startIdx);
+  placeAtSample(road.startIdx, road.startLateral);
 }
 
 // ---------- fixed-step sim ----------

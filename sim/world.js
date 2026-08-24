@@ -21,6 +21,7 @@ export const road = {
   SAMPLES: 0,
   width: 0,
   startIdx: 0,
+  startLateral: 0,
   centers: [],
   tangents: [],
   // Defined here, not taken from the builder, so it always reads the live
@@ -80,6 +81,11 @@ export function stepWorld(dt) {
   return features ? features.step(dt) : false;
 }
 
+// Moving, collidable features advance on the same fixed clock as car.js.
+export function stepWorldFixed(dt, player) {
+  return features ? features.fixedStep(dt, player) : false;
+}
+
 // Live state of a feature type, for the HUD and for tests.
 export function featureStates(type) {
   return features ? features.states(type) : [];
@@ -127,6 +133,7 @@ function activate(spec) {
   road.SAMPLES = built.SAMPLES;
   road.width = built.width;
   road.startIdx = built.startIdx;
+  road.startLateral = built.startLateral ?? 0;
   road.centers = built.centers;
   road.tangents = built.tangents;
   road.graph = built.graph;

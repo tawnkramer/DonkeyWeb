@@ -71,10 +71,11 @@ function newPerturbation() {
 }
 
 export function startRecovery() {
-  if (recovery.active) return;
+  if (recovery.active || road.graph) return false;
   recovery.active = true;
   setAutoResetOnOffTrack(false);
   newPerturbation();
+  return true;
 }
 
 // Same registration pattern as input.js's onReset and autopilot.js's

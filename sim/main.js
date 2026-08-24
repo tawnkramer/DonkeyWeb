@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H,
          isGLAvailable } from './scene.js';
-import { road, collision, setWorld, listWorlds, getWorldId, onWorldChange, stepWorld, featureStates } from './world.js';
+import { road, collision, setWorld, listWorlds, getWorldId, onWorldChange, stepWorld, stepWorldFixed, featureStates } from './world.js';
 import { hitTest } from './collide.js';
 import { car, V, step, DT, resetCar, resetCarToStart, placeCarAt, offTrack, simTime, cte, poseVersion } from './car.js';
 import { input, source, onReset } from './input.js';
@@ -266,6 +266,7 @@ function frame(now) {
   while (acc >= DT) {
     prevX = V.x; prevZ = V.z; prevHeading = V.heading;
     step(DT);
+    if (stepWorldFixed(DT, V)) wakeRender();
     acc -= DT;
   }
 
