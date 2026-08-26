@@ -90,23 +90,12 @@ roughly in order of preference:
 
 ### 3. Class imbalance
 
-**Status: mitigated in `train/worker.js` (`balanceByThrottle`).** This
-turned out not to need the other items first — a driver reported it
-directly: a red-light wait holds ~0 throttle for the whole `cycle.red`
-duration at 20 Hz, so "stopped" frames swamped everything else in the tub,
-including the brief take of accelerating away on green, and training
-regressed toward the stopped majority.
-
-The fix bins the *training* split by throttle (10 bins over [-1,1]) and
-resamples each bin toward the median occupied bin's count: bins above the
-target are thinned, bins below it are repeated (capped at 8x so one rare
-frame can't be duplicated without bound). Validation is left untouched so
-its metric still reports against the tub's real distribution.
-
-Not yet done: a throttle validation metric (item 4 below) to actually
-measure whether this helped, and the loss-weighting-between-heads
-alternative was not needed once resampling closed the gap. Revisit if
-under-braking (or under-accelerating) persists once item 4 lands.
+Braking frames are a small minority of any lap — most of the tub is cruising
+at a roughly constant throttle. Plain MSE on a single throttle head will
+regress toward the mean and systematically under-brake. Levers: loss
+weighting between the two heads (currently unweighted uniform MSE in
+`model.compile()`), oversampling braking frames when building batches in
+`train/worker.js`, or deliberately recording more stop-heavy laps.
 
 ### 4. There is no throttle metric at all
 
@@ -158,5 +147,4 @@ gracefully rather than being unusable for data collection.
    without it.
 4. Record city laps on the pad, look at what the model actually does at a
    red, and only then decide whether (1)'s speed input is needed.
-5. ~~Imbalance (3) if under-braking persists after that.~~ Landed early —
-   see item 3 above.
+5. Imbalance (3) if under-braking persists after that.

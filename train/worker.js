@@ -124,45 +124,6 @@ function shuffleInPlace(arr) {
   return arr;
 }
 
-// City driving skews throttle hard toward zero: a red light held at the
-// stop bar for the whole cycle.red duration (see sim/trafficlight.js)
-// records ~0 throttle every tick at 20 Hz, so "stopped" frames can swamp
-// every other throttle value combined -- docs/city-braking-notes.md #3.
-// Plain MSE over the pooled tub then regresses toward that majority and
-// undertrains "go", exactly what a brief green-light take cannot outweigh
-// on its own. This rebalances only the *training* split toward an even
-// count per throttle bin: bins above the target get thinned, bins below it
-// get repeated (capped, so one rare frame cannot get duplicated without
-// bound). Validation is never touched -- it has to keep the tub's real
-// distribution or its metric stops meaning what it says.
-const THROTTLE_BINS = 10;
-const MAX_OVERSAMPLE = 8;
-
-function throttleBin(t) {
-  const clamped = Math.min(1, Math.max(-1, t));
-  return Math.min(THROTTLE_BINS - 1, Math.floor((clamped + 1) / (2 / THROTTLE_BINS)));
-}
-
-function balanceByThrottle(records, indices) {
-  const byBin = Array.from({ length: THROTTLE_BINS }, () => []);
-  for (const idx of indices) byBin[throttleBin(records[idx].throttle)].push(idx);
-  const counts = byBin.map((b) => b.length).filter((n) => n > 0).sort((a, b) => a - b);
-  if (counts.length < 2) return indices; // one throttle value in play -- nothing to balance
-  const target = counts[Math.floor(counts.length / 2)]; // median of occupied bins
-
-  const balanced = [];
-  for (const bin of byBin) {
-    if (!bin.length) continue;
-    if (bin.length >= target) {
-      balanced.push(...shuffleInPlace(bin.slice()).slice(0, target));
-      continue;
-    }
-    const reps = Math.min(MAX_OVERSAMPLE, Math.round(target / bin.length));
-    for (let r = 0; r < reps; r++) balanced.push(...bin);
-  }
-  return balanced;
-}
-
 // Frames are decoded a batch at a time rather than all at once up front.
 // The old approach kept every frame decoded in one uint8 [n,H,W,C] buffer
 // -- 57.6 KB per frame, so 1200 frames is a 69 MB allocation that a phone's
@@ -386,11 +347,10 @@ async function run({ epochs = 10, batchSize = 64, valFrac = 0.15, profile = DEFA
   // against the tub rather than trusted, since a frame can be trimmed away
   // between the pick and the run.
   sampleId = byId.has(wantSampleId) ? wantSampleId : pickSampleId(records);
-  const balancedTrainIdx = balanceByThrottle(records, trainIdx);
-  post({ type: 'dataset', nTrain: balancedTrainIdx.length, nVal, epochs, batchSize });
+  post({ type: 'dataset', nTrain: trainIdx.length, nVal, epochs, batchSize });
 
   const trainDs = tf.data.generator(
-    () => batchesOf(records, shuffleInPlace(balancedTrainIdx.slice()), batchSize, true));
+    () => batchesOf(records, shuffleInPlace(trainIdx.slice()), batchSize, true));
   const valDs = tf.data.generator(
     () => batchesOf(records, valIdx, batchSize, false));
 
