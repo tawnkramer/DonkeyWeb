@@ -188,7 +188,9 @@ export function buildTraffic(spec, road, context = { states: () => [] }) {
     const visual = botMesh(cfg.color ?? [0xd85b45, 0x46a36f, 0xd3a936, 0x8d65bd][index % 4]);
     const mesh = visual.group;
     const s = safeSpawnPosition(path, (cfg.start ?? 0) * path.length);
-    const collider = circleCollider(0, 0, BOT_RADIUS);
+    // `moving` marks it as traffic rather than placed scenery: unlike a
+    // pole or a building, a bot belongs on the roadway.
+    const collider = { ...circleCollider(0, 0, BOT_RADIUS), moving: true };
     group.add(mesh); colliders.push(collider);
     return {
       id: cfg.id || `bot-${index + 1}`, path,
