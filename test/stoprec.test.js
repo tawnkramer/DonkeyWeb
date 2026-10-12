@@ -7,6 +7,8 @@ let ctx, page;
 before(async () => {
   ctx = await setupSimPage();
   page = ctx.page;
+  // The button belongs to recording sessions, which only signal worlds use.
+  await page.evaluate(() => window.__sim.setWorld('city'));
 });
 
 after(async () => {
@@ -96,4 +98,15 @@ test('it hides again when the car is left parked', async () => {
     const b = document.getElementById('stopRecBtn');
     return getComputedStyle(b).display === 'none';
   }, { message: 'stop button still visible after the session closed' });
+});
+
+test('worlds without signals never show it', async () => {
+  await page.evaluate(() => window.__sim.setWorld('dusk-loop'));
+  await startTake();
+  await waitFor(page, () => window.__sim.tub.frames.length > 0, {
+    message: 'never started recording',
+  });
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(await visible(), false, 'stop button shown in a world without signals');
+  await page.evaluate(() => { window.__sim.input.throttle = 0; });
 });

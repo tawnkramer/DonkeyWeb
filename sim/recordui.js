@@ -5,7 +5,8 @@
 // a red light is the behaviour the city world is there to teach. That
 // leaves no way to end a take on purpose except waiting out the idle
 // timeout, which is exactly wrong when you are sitting at a signal and
-// have decided you're done.
+// have decided you're done. Only signal worlds run sessions; everywhere
+// else lifting off ends the take, so the button never shows there.
 //
 // The visibility is driven from the render loop rather than from a
 // subscription, because "is recording" is a per-frame product of mode,
