@@ -85,3 +85,14 @@ test('recording still captures real frames with the preview hidden', async () =>
 
   await page.evaluate(() => { __sim.input.throttle = 0; });
 });
+
+// The desktop hint talks about a mouse, keys, a gamepad and "the small
+// screen" -- the cam preview, which is hidden here. None of it applies.
+test('touch layout shows the stick hint instead of the desktop one', async () => {
+  const s = await page.evaluate(() => {
+    const shown = (sel) => getComputedStyle(document.querySelector(sel)).display !== 'none';
+    return { desk: shown('#hint .hint-desk'), touch: shown('#hint .hint-touch') };
+  });
+  assert.equal(s.desk, false, 'desktop hint lines should be hidden on touch devices');
+  assert.equal(s.touch, true, 'touch hint line should be shown on touch devices');
+});

@@ -599,6 +599,7 @@
     border:1px solid var(--panel-line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;margin:0 2px;
   }
   #hint.gone{opacity:0;pointer-events:none}
+  #hint .hint-touch{display:none}
   #hintClose{
     position:absolute;top:4px;right:6px;background:transparent;border:none;
     color:#e0483e;font-size:16px;line-height:1;cursor:pointer;padding:4px 6px;
@@ -708,6 +709,8 @@
     #telem{top:66px}
     #evalPanel, #recoverPanel{top:auto;bottom:18px;right:16px}
     #hint{top:150px}
+    #hint .hint-desk{display:none}
+    #hint .hint-touch{display:block}
     /* lifted clear of the touch sticks, which own the bottom band here
        (120px + the 18px screen-edge padding), and left to wrap rather
        than run a long pad name off the side of a phone. */
@@ -1139,9 +1142,12 @@
 <div class="hud" id="hint">
   <button id="hintClose" aria-label="dismiss">&times;</button>
   <h1>Take a lap</h1>
-  <p>Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
+  <!-- Desktop and touch get different lines: phones have no mouse or keys,
+       and hide the cam preview the last desktop line points at. -->
+  <p class="hint-desk">Move mouse to steer · scroll or <kbd>W</kbd><kbd>S</kbd> for throttle · <kbd>R</kbd> reset to line<br>
   Plug in a gamepad and just use it — whatever you touch last drives.<br>
   The small screen is exactly what your model will see.</p>
+  <p class="hint-touch">Left stick steers · right stick sets throttle</p>
 </div>
 
 <div class="hud gone" id="padToast"></div>
