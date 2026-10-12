@@ -184,9 +184,12 @@ test('no world puts a solid object on its own roadway', async () => {
       const s = window.__sim;
       s.setWorld(id);
       const half = s.road.width / 2;
+      // Traffic bots drive on the roadway by design; only placed
+      // scenery and street furniture must stay off it.
+      const fixed = s.collision.list.filter((c) => !c.moving);
       for (let i = 0; i < s.road.SAMPLES; i++) {
         const c = s.road.centers[i];
-        const hit = s.hitTest(s.collision.list, c.x, c.z, half);
+        const hit = s.hitTest(fixed, c.x, c.z, half);
         if (hit) return { i, kind: hit.kind, x: hit.x, z: hit.z, cx: c.x, cz: c.z };
       }
       return null;
