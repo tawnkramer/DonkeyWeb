@@ -72,6 +72,14 @@ export function listWorlds() {
 export function getWorld() { return current; }
 export function getWorldId() { return current ? current.id : null; }
 
+// Whether the active world has signals to stop at. Recording sessions
+// (main.js) only make sense where there is a stop worth teaching; every
+// other world keeps the original throttle-gated recording.
+const SIGNAL_FEATURES = new Set(['trafficLights', 'intersectionSignals']);
+export function hasSignals() {
+  return !!current?.features?.some(f => SIGNAL_FEATURES.has(f.type));
+}
+
 // Advances the active world's animated features. Returns whether anything
 // visually changed, which main.js uses to break its idle rendering skip --
 // a traffic light holds one colour for seconds at a time, so waking on the

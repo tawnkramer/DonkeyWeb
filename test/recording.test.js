@@ -20,46 +20,32 @@ test('records while driving forward and on-track', async () => {
   assert.equal(frame.throttle, 0.6);
 });
 
-// The city world's traffic lights are only learnable if stopping is IN the
-// dataset. The old gate (`input.throttle > 0`) dropped every frame of a
-// stop, so the tub could never contain a zero-throttle label and a cloned
-// model had no example of stopping to learn from. See updateSession() in
-// sim/main.js.
-test('keeps recording through a stop, capturing zero-throttle frames', async () => {
+// The default world has no signals, so it keeps the original gate:
+// recording is on exactly while the throttle is > 0. Signal worlds record
+// through stops instead -- see test/sessions.test.js.
+test('stops recording as soon as the throttle is released', async () => {
   await page.evaluate(() => { __sim.input.throttle = 0.6; });
   await waitFor(page, () => window.__sim.V.speed > 2, { message: 'car never got moving' });
 
-  // Lift off and let it coast to a standstill.
   await page.evaluate(() => { __sim.input.throttle = 0; });
-  await waitFor(page, () => window.__sim.V.speed === 0, { message: 'car never came to rest' });
-
-  const atRest = await page.evaluate(() => window.__sim.tub.frames.length);
-  assert.equal(await page.evaluate(() => window.__sim.sessionOpen), true,
-    'session closed as soon as the driver lifted off');
-
-  // Frames must keep landing while stopped -- this is the "waiting at a
-  // red light" data.
-  await waitFor(page, (n) => window.__sim.tub.frames.length > n, {
-    args: [atRest],
-    message: 'no frames recorded while stopped -- a stop cannot be learned from this tub',
-  });
-
-  const zeroThrottle = await page.evaluate(() =>
-    window.__sim.tub.frames.filter((f) => f.throttle === 0).length);
-  assert.ok(zeroThrottle > 0, 'tub contains no zero-throttle frames');
-});
-
-test('closes the session once the car is left parked', async () => {
-  // SESSION_IDLE_S is 4s; allow margin for the sandbox's slow frames.
   await waitFor(page, () => window.__sim.sessionOpen === false, {
-    timeout: 15000,
-    message: 'session never closed while parked -- a forgotten car would flood the tub',
+    message: 'recording stayed on after lifting off in a world without signals',
   });
 
   const settled = await page.evaluate(() => window.__sim.tub.frames.length);
-  await new Promise((r) => setTimeout(r, 1200));
+  await new Promise((r) => setTimeout(r, 1000));
   assert.equal(await page.evaluate(() => window.__sim.tub.frames.length), settled,
-    'frames kept accumulating after the session closed');
+    'frames kept accumulating with the throttle released');
+  const zeroThrottle = await page.evaluate(() =>
+    window.__sim.tub.frames.filter((f) => f.throttle <= 0).length);
+  assert.equal(zeroThrottle, 0, 'recorded zero-throttle frames in a world without signals');
+
+  // Leave the car moving so the off-track test below has fresh frames.
+  await page.evaluate(() => { __sim.input.throttle = 0.6; });
+  await waitFor(page, (n) => window.__sim.tub.frames.length > n, {
+    args: [settled],
+    message: 'recording did not resume when the throttle was reapplied',
+  });
 });
 
 test('going off-track trims the last 3s, resets the car to the track, and zeroes throttle', async () => {

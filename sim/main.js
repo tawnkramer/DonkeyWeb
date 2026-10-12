@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { renderer, canvas, scene, chaseCam, povCam, povTarget, povPixels, povCtx, povImage, POV_W, POV_H,
          isGLAvailable } from './scene.js';
-import { road, collision, setWorld, listWorlds, getWorldId, onWorldChange, stepWorld, stepWorldFixed, featureStates } from './world.js';
+import { road, collision, setWorld, listWorlds, getWorldId, hasSignals, onWorldChange, stepWorld, stepWorldFixed, featureStates } from './world.js';
 import { hitTest } from './collide.js';
 import { car, V, step, DT, resetCar, resetCarToStart, placeCarAt, offTrack, simTime, cte, poseVersion } from './car.js';
 import { input, source, onReset } from './input.js';
@@ -90,7 +90,7 @@ window.__sim = {
   V, tub, scene, training, trainStart, trainStop,
   pilot, setPilotActive, loadPilotModel, getMode, setMode,
   getAvailableModels, recovery, startRecovery, stopRecovery,
-  road, setWorld, listWorlds, getWorldId, featureStates,
+  road, setWorld, listWorlds, getWorldId, hasSignals, featureStates,
   // Writing V.x/V.z from the console looks like it should work and does
   // not: nearestIdx only ever moves by a local search, so a hand-written
   // teleport leaves it stale, the cross-track error reads as enormous and
@@ -166,6 +166,11 @@ let recAcc = 0;
 // wait at a signal gets recorded, an abandoned session does not. Pulling
 // away reopens the session on the first throttle input, so the green-light
 // launch is captured from its first frame.
+//
+// All of that applies only to worlds with signals (hasSignals()). Worlds
+// without anything to stop at keep the original gate: recording is on
+// exactly while the throttle is > 0, so lifting off or a reset (which
+// zeroes the throttle) ends the take and there is no stop button.
 const SESSION_IDLE_S = 4;
 let sessionOpen = false, sessionIdleDt = 0;
 // Set by the stop-recording button. Without it the button would do
@@ -185,6 +190,12 @@ function updateSession(dt, mode) {
   // the model's own output, and the other screens aren't driving.
   if (mode !== 'drive' || pilot.active) {
     sessionOpen = false;
+    sessionIdleDt = 0;
+    sessionSuppressed = false;
+    return;
+  }
+  if (!hasSignals()) {
+    sessionOpen = input.throttle > 0;
     sessionIdleDt = 0;
     sessionSuppressed = false;
     return;
@@ -372,8 +383,9 @@ function frame(now) {
   // Drive only: isRecording is also true throughout a recovery-generation
   // episode, but stopSession() governs manual driving sessions and would
   // do nothing there -- a visible button that ignores clicks is worse than
-  // no button. Recover mode has its own stop control in its panel.
-  drawRecordButton(isRecording && mode === 'drive');
+  // no button. Recover mode has its own stop control in its panel. Worlds
+  // without signals stop recording on lift-off, so they need no button.
+  drawRecordButton(isRecording && mode === 'drive' && hasSignals());
   syncDataAvailability();
   drawPilot();
   drawRecover();
